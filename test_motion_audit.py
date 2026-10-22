@@ -44,6 +44,9 @@ class FakeMedia:
     def full_video_suffix(self, photo, video):
         return None
 
+    def prefetch(self, assets):
+        pass
+
 
 def photo(id="photo", **changes):
     return replace(

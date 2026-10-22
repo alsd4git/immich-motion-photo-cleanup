@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter, defaultdict
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +20,7 @@ from inventory import (
     database_inventory,
     filesystem_inventory,
     read_inventory,
+    serialize_inventory,
 )
 from media import MediaReader
 
@@ -150,6 +150,12 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
         assets, owner, match_content
     )
     selected = photos[offset : offset + limit]
+    prefetch_ids = {photo.id for photo in selected}
+    for photo in selected:
+        prefetch_ids.update(matches[photo.id])
+        if photo.linked_video_id in by_id:
+            prefetch_ids.add(photo.linked_video_id)
+    media.prefetch([by_id[asset_id] for asset_id in sorted(prefetch_ids)])
     global_link_candidates = defaultdict(set)
     for photo in photos:
         if not photo.linked_video_id:
@@ -179,6 +185,7 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
         }
         try:
             info = media.photo(photo)
+            base.update(camera_make=info.make, camera_model=info.model)
             retained_matches = False
             retained_error = None
             retained = by_id.get(photo.linked_video_id)
@@ -391,8 +398,8 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
     }
 
 
-def arguments(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+def arguments(argv=None, parser=None):
+    parser = parser or argparse.ArgumentParser(description=__doc__)
     sources = parser.add_mutually_exclusive_group(required=True)
     sources.add_argument(
         "--root", type=Path, help="scan media files under this filesystem directory"
@@ -521,11 +528,7 @@ def main(argv=None):
             )
             media.verify_unchanged()
         report["compare_streams"] = args.compare_streams
-        snapshot = "".join(
-            json.dumps({**asdict(asset), "path": str(asset.path)}, sort_keys=True)
-            + "\n"
-            for asset in sorted(assets, key=lambda asset: asset.id)
-        )
+        snapshot = serialize_inventory(assets)
         report["inventory_sha256"] = hashlib.sha256(snapshot.encode()).hexdigest()
         # The only persistent writes are a newly created report directory.
         args.output.mkdir(parents=True, exist_ok=False, mode=0o700)

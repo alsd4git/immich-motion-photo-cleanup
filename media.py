@@ -26,6 +26,8 @@ class PhotoInfo:
     captured_at: str | None
     extraction: str | None = None
     streams: dict | None = None
+    make: str | None = None
+    model: str | None = None
 
 
 class MediaReader:
@@ -60,7 +62,7 @@ class MediaReader:
         self.snapshots[path] = signature
         return path
 
-    def _metadata(self, path):
+    def _metadata_many(self, paths):
         args = [
             "exiftool",
             "-json",
@@ -77,20 +79,48 @@ class MediaReader:
             "-MediaGroupUUID",
             "-DateTimeOriginal",
             "-CreateDate",
-            str(path),
+            "-Make",
+            "-Model",
+            *map(str, paths),
         ]
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=self.timeout, check=True
+            args, capture_output=True, text=True, timeout=self.timeout, check=False
         )
         metadata = json.loads(result.stdout)
-        if (
-            not isinstance(metadata, list)
-            or len(metadata) != 1
-            or not isinstance(metadata[0], dict)
-            or metadata[0].get("Error")
+        if not isinstance(metadata, list) or any(
+            not isinstance(item, dict) for item in metadata
         ):
             raise MediaError("ExifTool could not read the media metadata")
-        return metadata[0]
+        return {item.get("SourceFile"): item for item in metadata}
+
+    def _metadata(self, path):
+        metadata = self._metadata_many([path]).get(str(path))
+        if not metadata or metadata.get("Error"):
+            raise MediaError("ExifTool could not read the media metadata")
+        return metadata
+
+    def prefetch(self, assets):
+        """Amortize ExifTool startup across bounded groups of candidate files."""
+        pending = {}
+        for asset in assets:
+            try:
+                path = self._path(asset)
+            except (OSError, ValueError):
+                continue  # The normal per-file read records its own error later.
+            if ("metadata", path) not in self.cache:
+                pending[path] = asset
+        paths = list(pending)
+        for start in range(0, len(paths), 64):
+            group = paths[start : start + 64]
+            try:
+                metadata = self._metadata_many(group)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                continue  # Fall back to per-file reads when a group cannot be read.
+            for path in group:
+                item = metadata.get(str(path))
+                if item and not item.get("Error"):
+                    self.cache[("metadata", path)] = item
+                self._path(pending[path])
 
     def _probe(self, path):
         result = subprocess.run(
@@ -304,7 +334,13 @@ class MediaReader:
         if binary_tag is None and region is None:
             if metadata.get("MotionPhoto"):
                 raise MediaError("MotionPhoto flag without an extractable clip")
-            info = PhotoInfo(None, cid, captured)
+            info = PhotoInfo(
+                None,
+                cid,
+                captured,
+                make=metadata.get("Make"),
+                model=metadata.get("Model"),
+            )
         else:
             with tempfile.NamedTemporaryFile(
                 suffix=".mp4",
@@ -349,7 +385,13 @@ class MediaReader:
                 self._probe(destination)
                 streams = self._streams(destination) if self.compare_streams else None
                 info = PhotoInfo(
-                    self._hash(destination), cid, captured, extraction, streams
+                    self._hash(destination),
+                    cid,
+                    captured,
+                    extraction,
+                    streams,
+                    metadata.get("Make"),
+                    metadata.get("Model"),
                 )
         self._path(asset)
         self.cache[key] = info

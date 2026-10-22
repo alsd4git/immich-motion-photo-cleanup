@@ -4,7 +4,7 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".avif"}
@@ -48,6 +48,8 @@ def read_inventory(lines):
                     raise ValueError(f"invalid {field}")
             if record["id"] in seen:
                 raise ValueError("duplicate asset id")
+            if record.get("source", "immich") not in {"immich", "filesystem"}:
+                raise ValueError("invalid inventory source")
             if record["type"] not in {"IMAGE", "VIDEO", "AUDIO", "OTHER"}:
                 raise ValueError("unrecognized asset type")
             path = Path(record["path"])
@@ -66,12 +68,20 @@ def read_inventory(lines):
                     record.get("captured_at"),
                     record.get("cid") or None,
                     record.get("visibility") or "timeline",
+                    record.get("source", "immich"),
                 )
             )
             seen.add(record["id"])
         except (ValueError, TypeError) as error:
             raise ValueError(f"inventory line {number}: {error}") from error
     return assets
+
+
+def serialize_inventory(assets):
+    return "".join(
+        json.dumps({**asdict(asset), "path": str(asset.path)}, sort_keys=True) + "\n"
+        for asset in sorted(assets, key=lambda asset: asset.id)
+    )
 
 
 def database_inventory(container):

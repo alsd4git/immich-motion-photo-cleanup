@@ -63,6 +63,34 @@ The scan skips symlinks and sidecars. A filesystem-only audit can confirm that a
 clip is embedded, but reports `review` because it cannot know which video Immich
 needs for live playback. It never generates actionable trash/link proposals.
 
+## Run all batches and resume
+
+`run_batches.py` freezes the inventory once and processes every eligible photo
+in batches of `--limit`, 200 by default. Run it on the library host:
+
+```sh
+python3 run_batches.py \
+  --immich-db-container immich_postgres \
+  --path-map /data=/srv/immich \
+  --compare-streams --limit 200 \
+  --output /absolute/private/path/motion-audit-run
+```
+
+Repeat the same command with `--resume` after an interruption. It verifies the
+inventory hash, tool source and matching configuration before continuing.
+`--max-batches 1` is useful for a first batch; it can be omitted when resuming.
+A process lock prevents two invocations from auditing the same run concurrently.
+
+The run directory contains `progress.json`, an append-only `journal.jsonl`,
+per-batch reports and logs, and a cumulative `summary.json`. The summary merges
+proposals by video ID and demotes conflicting links across batches to
+`review_conflict`. It records camera-model coverage and file errors. Metadata
+reads are grouped to avoid starting ExifTool for every file separately.
+
+Source files remain read-only. The runner never executes the proposals. Use a
+private run directory outside both the library and the Git checkout; filenames,
+asset IDs and original paths are user data and must not be committed.
+
 ## Matching and evidence
 
 Candidate matching uses the same owner and either the filename stem or the

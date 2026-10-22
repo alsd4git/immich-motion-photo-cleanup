@@ -10,9 +10,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from inventory import Asset, LibraryPaths, filesystem_inventory, read_inventory
-from motion_audit import audit, main
-
 from media import Fingerprint, MediaError, MediaReader, PhotoInfo
+from motion_audit import audit, main
 
 CLIP = Fingerprint("a" * 64, 100)
 OTHER = Fingerprint("b" * 64, 100)
@@ -41,6 +40,9 @@ class FakeMedia:
 
     def size(self, asset):
         return self.video(asset).size
+
+    def full_video_suffix(self, photo, video):
+        return None
 
 
 def photo(id="photo", **changes):
@@ -299,6 +301,34 @@ class RealMediaTests(unittest.TestCase):
         self.assertEqual(
             before, {path: path.read_bytes() for path in self.root.iterdir()}
         )
+
+    def test_samsung_style_trailer_is_preserved_in_the_photo(self):
+        with tempfile.TemporaryDirectory(dir=self.root) as generated:
+            root = Path(generated)
+            trailer = b"synthetic metadata" + b"SEFH" + b"test directory" + b"SEFT"
+            still = root / "motion.jpg"
+            standalone = root / "motion.mp4"
+            still.write_bytes(self.still.read_bytes() + trailer)
+            standalone.write_bytes(self.payload + trailer)
+            assets = self.assets()
+            assets[0] = replace(assets[0], path=still)
+            assets[1] = replace(assets[1], path=standalone)
+            media = self.media()
+            # Supply verified extraction metadata; the suffix check itself uses
+            # the real files and includes the whole synthetic Samsung-style tail.
+            media.cache[("photo", still.resolve())] = PhotoInfo(
+                Fingerprint(
+                    hashlib.sha256(self.payload).hexdigest(), len(self.payload)
+                ),
+                None,
+                None,
+            )
+            row = audit(assets, media)["rows"][0]
+            self.assertEqual(row["action"], "propose_trash")
+            self.assertTrue(row["full_file_embedded"])
+            self.assertFalse(row["requires_metadata_review"])
+            standalone.write_bytes(self.payload + b"unique metadata")
+            self.assertIsNone(self.media().full_video_suffix(assets[0], assets[1]))
 
     def test_shared_retained_file_is_not_a_trash_proposal(self):
         assets = self.assets()

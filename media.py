@@ -149,6 +149,25 @@ class MediaReader:
             self._path(asset)
         return self.cache[key]
 
+    def full_video_suffix(self, photo, video):
+        """Prove the whole standalone file, including trailers, is in the photo."""
+        photo_path = self._path(photo)
+        fingerprint = self.video(video)
+        photo_size = photo_path.stat().st_size
+        if fingerprint.size >= photo_size:
+            return None
+        offset = photo_size - fingerprint.size
+        key = ("suffix", photo_path, fingerprint.size)
+        if key not in self.cache:
+            digest = hashlib.sha256()
+            with photo_path.open("rb") as source:
+                source.seek(offset)
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(block)
+            self.cache[key] = digest.hexdigest()
+            self._path(photo)
+        return offset if self.cache[key] == fingerprint.sha256 else None
+
     def _streams(self, path):
         result = subprocess.run(
             [

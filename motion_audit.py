@@ -22,7 +22,6 @@ from inventory import (
     filesystem_inventory,
     read_inventory,
 )
-
 from media import MediaReader
 
 VERSION = 1
@@ -110,15 +109,18 @@ def classify(
     references,
     retained_matches,
     same_streams=False,
+    full_file_embedded=False,
 ):
-    same_content = same_bytes or same_streams
+    same_content = same_bytes or same_streams or full_file_embedded
     if video.id in references:
         return "keep", "video_is_a_live_photo_companion"
     if photo.linked_video_id:
         if same_content and retained_matches:
             return (
                 "propose_trash",
-                "embedded_clip_and_retained_companion_are_byte_identical"
+                "entire_standalone_file_is_embedded_in_photo"
+                if full_file_embedded
+                else "embedded_clip_and_retained_companion_are_byte_identical"
                 if same_bytes
                 else "identical_media_packets_with_retained_companion_metadata_requires_review",
             )
@@ -130,7 +132,9 @@ def classify(
     if same_content:
         return (
             "propose_link",
-            "standalone_video_is_the_exact_embedded_clip"
+            "entire_standalone_file_is_embedded_in_unlinked_photo"
+            if full_file_embedded
+            else "standalone_video_is_the_exact_embedded_clip"
             if same_bytes
             else "identical_media_packets_without_a_companion_metadata_requires_review",
         )
@@ -221,7 +225,15 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                     same_bytes = (
                         info.embedded is not None and fingerprint == info.embedded
                     )
-                    if video_id not in matches[photo.id] and not same_bytes:
+                    suffix_offset = (
+                        media.full_video_suffix(photo, video)
+                        if not same_bytes
+                        else None
+                    )
+                    full_file_embedded = suffix_offset is not None
+                    if video_id not in matches[photo.id] and not (
+                        same_bytes or full_file_embedded
+                    ):
                         continue  # A same-sized file alone is not a candidate.
                     metadata, video_cid = media.identity(video)
                     photo_cid = photo.cid or info.cid
@@ -235,7 +247,7 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                         date(video.captured_at or metadata.get("CreateDate")),
                     )
                     streams_match = False
-                    if info.streams and not same_bytes:
+                    if info.streams and not (same_bytes or full_file_embedded):
                         stream_hash = media.streams(video)
                         streams_match = stream_hash == info.streams
                         row.update(
@@ -252,6 +264,7 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                         references,
                         retained_matches,
                         same_streams=streams_match,
+                        full_file_embedded=full_file_embedded,
                     )
                     if cid_conflict and action == "propose_link":
                         action, reason = (
@@ -263,6 +276,8 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                             "action": action,
                             "reason": reason,
                             "byte_identical": same_bytes,
+                            "full_file_embedded": full_file_embedded,
+                            "full_file_offset": suffix_offset,
                             "content_identifier_matches": same_cid,
                             "content_identifier_conflict": cid_conflict,
                             "date_delta_seconds": delta,
@@ -273,7 +288,7 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                             "video_captured_at": video.captured_at
                             or metadata.get("CreateDate"),
                             "requires_metadata_review": streams_match
-                            and not same_bytes,
+                            and not (same_bytes or full_file_embedded),
                         }
                     )
                     # Distinct asset IDs can point to the same file, or to hardlinks.

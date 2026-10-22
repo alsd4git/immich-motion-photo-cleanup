@@ -83,6 +83,12 @@ that each compared clip has a video stream and a positive duration. SHA-256
 compares the complete clip, including audio and container metadata. Similar
 frames or matching timestamps alone never justify a trash proposal.
 
+It also checks whether the entire standalone file is an exact suffix of the
+original photo. This includes Samsung SEF trailers and other appended data.
+When that comparison matches, `full_file_embedded` records the proof and
+`requires_metadata_review` is false because all standalone bytes are preserved
+in the original photo. The existing Immich companion is still protected.
+
 With `--compare-streams`, it also hashes all encoded packets and compares their
 timestamps and stream decoding/presentation parameters, including audio, other
 tracks and rotation. Matching packets can support a trash or link proposal, with

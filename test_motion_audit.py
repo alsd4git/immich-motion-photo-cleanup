@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 from inventory import Asset, LibraryPaths, filesystem_inventory, read_inventory
 from media import Fingerprint, MediaError, MediaReader, PhotoInfo
@@ -46,6 +47,9 @@ class FakeMedia:
 
     def prefetch(self, assets):
         pass
+
+    def photo_from_contained_video(self, photo, videos, retained):
+        return None
 
 
 def photo(id="photo", **changes):
@@ -339,6 +343,17 @@ class RealMediaTests(unittest.TestCase):
         row = audit(assets, self.media())["rows"][0]
         self.assertEqual(row["action"], "review")
         self.assertEqual(row["reason"], "duplicate_and_companion_share_a_file")
+
+    def test_byte_proofs_avoid_reextracting_an_existing_companion(self):
+        media = self.media()
+        with mock.patch.object(
+            media,
+            "_metadata_many",
+            side_effect=AssertionError("unnecessary extraction"),
+        ):
+            row = audit(self.assets(), media)["rows"][0]
+        self.assertEqual(row["action"], "propose_trash")
+        self.assertEqual(row["extraction"], "verified_containment")
 
     def test_changed_source_invalidates_report(self):
         mutable = self.root / "mutable.mp4"

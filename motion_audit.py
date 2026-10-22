@@ -22,7 +22,7 @@ from inventory import (
     read_inventory,
     serialize_inventory,
 )
-from media import MediaReader
+from media import MediaReader, PhotoInfo
 
 VERSION = 1
 READ_ERRORS = (OSError, ValueError, subprocess.SubprocessError)
@@ -150,12 +150,36 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
         assets, owner, match_content
     )
     selected = photos[offset : offset + limit]
-    prefetch_ids = {photo.id for photo in selected}
+    prepared = {}
+    fallback_photos = []
     for photo in selected:
-        prefetch_ids.update(matches[photo.id])
-        if photo.linked_video_id in by_id:
-            prefetch_ids.add(photo.linked_video_id)
-    media.prefetch([by_id[asset_id] for asset_id in sorted(prefetch_ids)])
+        unused = [
+            by_id[video_id]
+            for video_id in sorted(matches[photo.id])
+            if video_id not in references
+        ]
+        info = None
+        if not unused and not match_content:
+            info = PhotoInfo(
+                None,
+                photo.cid,
+                photo.captured_at,
+                "relationship_only",
+                make=photo.camera_make,
+                model=photo.camera_model,
+            )
+        elif unused:
+            try:
+                info = media.photo_from_contained_video(
+                    photo, unused, by_id.get(photo.linked_video_id)
+                )
+            except READ_ERRORS:
+                pass  # Normal reads below record each failing asset individually.
+        if info is None:
+            fallback_photos.append(photo)
+        else:
+            prepared[photo.id] = info
+    media.prefetch(fallback_photos)
     global_link_candidates = defaultdict(set)
     for photo in photos:
         if not photo.linked_video_id:
@@ -184,7 +208,7 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
             "linked_video_id": photo.linked_video_id,
         }
         try:
-            info = media.photo(photo)
+            info = prepared.get(photo.id) or media.photo(photo)
             base.update(camera_make=info.make, camera_model=info.model)
             retained_matches = False
             retained_error = None
@@ -228,6 +252,17 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                     "retained_companion_path": str(retained.path) if retained else None,
                 }
                 try:
+                    if (
+                        info.extraction == "relationship_only"
+                        and video.id in references
+                    ):
+                        row.update(
+                            action="keep",
+                            reason="video_is_a_live_photo_companion",
+                            media_verified=False,
+                        )
+                        matched_rows.append(row)
+                        continue
                     fingerprint = media.video(video)
                     same_bytes = (
                         info.embedded is not None and fingerprint == info.embedded
@@ -242,7 +277,10 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                         same_bytes or full_file_embedded
                     ):
                         continue  # A same-sized file alone is not a candidate.
-                    metadata, video_cid = media.identity(video)
+                    if same_bytes or full_file_embedded:
+                        metadata, video_cid = {}, video.cid
+                    else:
+                        metadata, video_cid = media.identity(video)
                     photo_cid = photo.cid or info.cid
                     same_cid = bool(photo_cid and photo_cid == (video.cid or video_cid))
                     cid_conflict = bool(
@@ -254,12 +292,20 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                         date(video.captured_at or metadata.get("CreateDate")),
                     )
                     streams_match = False
-                    if info.streams and not (same_bytes or full_file_embedded):
+                    embedded_streams = info.streams
+                    if (
+                        embedded_streams is None
+                        and getattr(media, "compare_streams", False)
+                        and info.extraction == "verified_containment"
+                        and not (same_bytes or full_file_embedded)
+                    ):
+                        embedded_streams = media.streams(retained)
+                    if embedded_streams and not (same_bytes or full_file_embedded):
                         stream_hash = media.streams(video)
-                        streams_match = stream_hash == info.streams
+                        streams_match = stream_hash == embedded_streams
                         row.update(
                             streams_identical=streams_match,
-                            embedded_streams=info.streams,
+                            embedded_streams=embedded_streams,
                             video_streams=stream_hash,
                         )
                     action, reason = classify(

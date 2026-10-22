@@ -117,6 +117,13 @@ When that comparison matches, `full_file_embedded` records the proof and
 `requires_metadata_review` is false because all standalone bytes are preserved
 in the original photo. The existing Immich companion is still protected.
 
+For an already linked photo, direct byte comparisons can prove both the full
+standalone suffix and the retained companion inside it. That path records
+`verified_containment` and avoids re-extracting the clip. Candidates that are
+already registered companions and have no unused alternatives can be kept from
+their database relationships alone. Their rows state `media_verified: false`;
+this is duplicate analysis, not a file-integrity check of every kept asset.
+
 With `--compare-streams`, it also hashes all encoded packets and compares their
 timestamps and stream decoding/presentation parameters, including audio, other
 tracks and rotation. Matching packets can support a trash or link proposal, with

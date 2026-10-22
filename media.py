@@ -198,6 +198,46 @@ class MediaReader:
             self._path(photo)
         return offset if self.cache[key] == fingerprint.sha256 else None
 
+    def photo_from_contained_video(self, photo, videos, retained):
+        """Use direct byte proofs when a registered companion is already present."""
+        if (
+            retained is None
+            or retained.type != "VIDEO"
+            or retained.owner_id != photo.owner_id
+        ):
+            return None
+        fingerprint = self.video(retained)
+        for video in videos:
+            if video.id == retained.id:
+                continue
+            offset = self.full_video_suffix(photo, video)
+            if offset is None:
+                continue
+            path = self._path(photo)
+            digest = hashlib.sha256()
+            with path.open("rb") as source:
+                source.seek(offset)
+                remaining = fingerprint.size
+                while remaining:
+                    block = source.read(min(1024 * 1024, remaining))
+                    if not block:
+                        raise MediaError(
+                            "truncated source while verifying the retained companion"
+                        )
+                    remaining -= len(block)
+                    digest.update(block)
+            self._path(photo)
+            if digest.hexdigest() == fingerprint.sha256:
+                return PhotoInfo(
+                    fingerprint,
+                    photo.cid,
+                    photo.captured_at,
+                    "verified_containment",
+                    make=photo.camera_make,
+                    model=photo.camera_model,
+                )
+        return None
+
     def _streams(self, path):
         result = subprocess.run(
             [

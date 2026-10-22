@@ -8,6 +8,8 @@ SELECT json_build_object(
   'linked_video_id', a."livePhotoVideoId",
   'captured_at', a."localDateTime",
   'cid', e."livePhotoCID",
+  'camera_make', e.make,
+  'camera_model', e.model,
   'visibility', a.visibility
 )
 FROM asset a

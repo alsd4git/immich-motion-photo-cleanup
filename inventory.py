@@ -23,6 +23,8 @@ class Asset:
     cid: str | None = None
     visibility: str = "timeline"
     source: str = "immich"
+    camera_make: str | None = None
+    camera_model: str | None = None
 
     @property
     def stem(self):
@@ -43,7 +45,14 @@ def read_inventory(lines):
             for field in ("id", "owner_id", "type", "path", "name"):
                 if not isinstance(record.get(field), str) or not record[field]:
                     raise ValueError(f"missing or invalid {field}")
-            for field in ("linked_video_id", "captured_at", "cid", "visibility"):
+            for field in (
+                "linked_video_id",
+                "captured_at",
+                "cid",
+                "visibility",
+                "camera_make",
+                "camera_model",
+            ):
                 if record.get(field) is not None and not isinstance(record[field], str):
                     raise ValueError(f"invalid {field}")
             if record["id"] in seen:
@@ -69,6 +78,8 @@ def read_inventory(lines):
                     record.get("cid") or None,
                     record.get("visibility") or "timeline",
                     record.get("source", "immich"),
+                    record.get("camera_make"),
+                    record.get("camera_model"),
                 )
             )
             seen.add(record["id"])

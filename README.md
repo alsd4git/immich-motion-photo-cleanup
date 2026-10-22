@@ -124,6 +124,12 @@ already registered companions and have no unused alternatives can be kept from
 their database relationships alone. Their rows state `media_verified: false`;
 this is duplicate analysis, not a file-integrity check of every kept asset.
 
+Direct containment proofs also avoid media-probe subprocesses. These rows set
+`byte_preservation_verified: true` and `media_verified: false`: the complete
+standalone file and the retained companion were compared against bytes in the
+original photo, without checking their playback health. Media probing and
+packet comparisons remain available for cases without that stronger byte proof.
+
 With `--compare-streams`, it also hashes all encoded packets and compares their
 timestamps and stream decoding/presentation parameters, including audio, other
 tracks and rotation. Matching packets can support a trash or link proposal, with

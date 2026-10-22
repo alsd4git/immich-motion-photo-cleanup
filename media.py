@@ -161,11 +161,20 @@ class MediaReader:
 
     def video(self, asset):
         path = self._path(asset)
-        key = ("video", path)
+        fingerprint = self.fingerprint(asset)
+        key = ("probed", path)
+        if key not in self.cache:
+            self._probe(path)
+            self.cache[key] = True
+            self._path(asset)
+        return fingerprint
+
+    def fingerprint(self, asset):
+        path = self._path(asset)
+        key = ("fingerprint", path)
         if key not in self.cache:
             if path.stat().st_size > self.max_clip_bytes:
                 raise MediaError("video exceeds --max-clip-mib; left for review")
-            self._probe(path)
             self.cache[key] = self._hash(path)
             self._path(asset)
         return self.cache[key]
@@ -182,7 +191,7 @@ class MediaReader:
     def full_video_suffix(self, photo, video):
         """Prove the whole standalone file, including trailers, is in the photo."""
         photo_path = self._path(photo)
-        fingerprint = self.video(video)
+        fingerprint = self.fingerprint(video)
         photo_size = photo_path.stat().st_size
         if fingerprint.size >= photo_size:
             return None
@@ -206,7 +215,7 @@ class MediaReader:
             or retained.owner_id != photo.owner_id
         ):
             return None
-        fingerprint = self.video(retained)
+        fingerprint = self.fingerprint(retained)
         for video in videos:
             if video.id == retained.id:
                 continue

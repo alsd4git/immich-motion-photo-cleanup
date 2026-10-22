@@ -224,7 +224,12 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                     )
                 else:
                     try:
-                        retained_matches = media.video(retained) == info.embedded
+                        retained_fingerprint = (
+                            media.fingerprint(retained)
+                            if info.extraction == "verified_containment"
+                            else media.video(retained)
+                        )
+                        retained_matches = retained_fingerprint == info.embedded
                         if not retained_matches:
                             retained_error = (
                                 "linked companion differs from the embedded clip"
@@ -263,7 +268,11 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                         )
                         matched_rows.append(row)
                         continue
-                    fingerprint = media.video(video)
+                    fingerprint = (
+                        media.fingerprint(video)
+                        if info.extraction == "verified_containment"
+                        else media.video(video)
+                    )
                     same_bytes = (
                         info.embedded is not None and fingerprint == info.embedded
                     )
@@ -329,6 +338,9 @@ def audit(assets, media, *, owner=None, offset=0, limit=200, match_content=False
                             "action": action,
                             "reason": reason,
                             "byte_identical": same_bytes,
+                            "media_verified": info.extraction != "verified_containment",
+                            "byte_preservation_verified": same_bytes
+                            or full_file_embedded,
                             "full_file_embedded": full_file_embedded,
                             "full_file_offset": suffix_offset,
                             "content_identifier_matches": same_cid,

@@ -346,14 +346,22 @@ class RealMediaTests(unittest.TestCase):
 
     def test_byte_proofs_avoid_reextracting_an_existing_companion(self):
         media = self.media()
-        with mock.patch.object(
-            media,
-            "_metadata_many",
-            side_effect=AssertionError("unnecessary extraction"),
+        with (
+            mock.patch.object(
+                media,
+                "_metadata_many",
+                side_effect=AssertionError("unnecessary extraction"),
+            ),
+            mock.patch.object(
+                media, "_probe", side_effect=AssertionError("unnecessary media probe")
+            ),
         ):
             row = audit(self.assets(), media)["rows"][0]
         self.assertEqual(row["action"], "propose_trash")
         self.assertEqual(row["extraction"], "verified_containment")
+
+        self.assertFalse(row["media_verified"])
+        self.assertTrue(row["byte_preservation_verified"])
 
     def test_changed_source_invalidates_report(self):
         mutable = self.root / "mutable.mp4"

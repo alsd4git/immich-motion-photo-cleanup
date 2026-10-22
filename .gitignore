@@ -1,0 +1,8 @@
+__pycache__/
+.ruff_cache/
+report.json
+summary.txt
+inventory.jsonl
+.venv/
+/reports/
+/runs/

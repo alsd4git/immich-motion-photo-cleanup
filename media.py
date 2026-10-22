@@ -1,0 +1,352 @@
+"""Read media metadata and hash embedded clips. Only temporary clips are written."""
+
+import hashlib
+import json
+import math
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+
+class MediaError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Fingerprint:
+    sha256: str
+    size: int
+
+
+@dataclass(frozen=True)
+class PhotoInfo:
+    embedded: Fingerprint | None
+    cid: str | None
+    captured_at: str | None
+    extraction: str | None = None
+    streams: dict | None = None
+
+
+class MediaReader:
+    def __init__(
+        self,
+        paths,
+        temporary_directory,
+        timeout=60,
+        max_clip_bytes=256 * 1024**2,
+        compare_streams=False,
+    ):
+        self.paths = paths
+        self.temporary_directory = temporary_directory
+        self.timeout = timeout
+        self.max_clip_bytes = max_clip_bytes
+        self.compare_streams = compare_streams
+        self.cache = {}
+        self.snapshots = {}
+
+    def _path(self, asset):
+        path = self.paths.resolve(asset.path)
+        stat = path.stat()
+        signature = (
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+        )
+        if path in self.snapshots and self.snapshots[path] != signature:
+            raise MediaError("source file changed during the audit; run a fresh batch")
+        self.snapshots[path] = signature
+        return path
+
+    def _metadata(self, path):
+        args = [
+            "exiftool",
+            "-json",
+            "-n",
+            "-struct",
+            "-MotionPhoto",
+            "-MicroVideo",
+            "-MicroVideoOffset",
+            "-ContainerDirectory",
+            "-EmbeddedVideoType",
+            "-EmbeddedVideoFile",
+            "-MotionPhotoVideo",
+            "-ContentIdentifier",
+            "-MediaGroupUUID",
+            "-DateTimeOriginal",
+            "-CreateDate",
+            str(path),
+        ]
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=self.timeout, check=True
+        )
+        metadata = json.loads(result.stdout)
+        if (
+            not isinstance(metadata, list)
+            or len(metadata) != 1
+            or not isinstance(metadata[0], dict)
+            or metadata[0].get("Error")
+        ):
+            raise MediaError("ExifTool could not read the media metadata")
+        return metadata[0]
+
+    def _probe(self, path):
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=self.timeout,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        if not any(
+            stream.get("codec_type") == "video" for stream in data.get("streams", [])
+        ):
+            raise MediaError("clip has no readable video stream")
+        try:
+            duration = float(data["format"]["duration"])
+            if not math.isfinite(duration) or duration <= 0:
+                raise ValueError
+        except (KeyError, TypeError, ValueError) as error:
+            raise MediaError("clip has no positive duration") from error
+
+    @staticmethod
+    def _hash(path):
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+        return Fingerprint(digest.hexdigest(), path.stat().st_size)
+
+    def video(self, asset):
+        path = self._path(asset)
+        key = ("video", path)
+        if key not in self.cache:
+            if path.stat().st_size > self.max_clip_bytes:
+                raise MediaError("video exceeds --max-clip-mib; left for review")
+            self._probe(path)
+            self.cache[key] = self._hash(path)
+            self._path(asset)
+        return self.cache[key]
+
+    def streams(self, asset):
+        path = self._path(asset)
+        key = ("streams", path)
+        if key not in self.cache:
+            self.video(asset)
+            self.cache[key] = self._streams(path)
+            self._path(asset)
+        return self.cache[key]
+
+    def _streams(self, path):
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_streams",
+                "-show_packets",
+                "-show_data_hash",
+                "sha256",
+                "-show_entries",
+                "packet=stream_index,pts,dts,duration,pts_time,dts_time,duration_time,size,flags,data_hash,side_data_list:stream",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=self.timeout,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        canonical = []
+        packets = data.get("packets", [])
+        for stream in data.get("streams", []):
+            # Text metadata can differ between Google Takeout's standalone MP4
+            # and the embedded clip. Include decoding/presentation parameters,
+            # every timed packet and every track, including audio and data.
+            fields = (
+                "codec_type",
+                "codec_name",
+                "codec_tag_string",
+                "profile",
+                "level",
+                "width",
+                "height",
+                "coded_width",
+                "coded_height",
+                "pix_fmt",
+                "sample_rate",
+                "channels",
+                "channel_layout",
+                "time_base",
+                "avg_frame_rate",
+                "sample_aspect_ratio",
+                "color_space",
+                "color_transfer",
+                "color_primaries",
+                "color_range",
+                "chroma_location",
+                "field_order",
+                "bits_per_raw_sample",
+                "extradata_hash",
+                "side_data_list",
+                "disposition",
+            )
+            track = {field: stream[field] for field in fields if field in stream}
+            track["rotate"] = stream.get("tags", {}).get("rotate")
+            track["packets"] = [
+                {key: value for key, value in packet.items() if key != "stream_index"}
+                for packet in packets
+                if packet.get("stream_index") == stream["index"]
+            ]
+            if any("data_hash" not in packet for packet in track["packets"]):
+                raise MediaError("ffprobe did not hash every packet")
+            canonical.append(track)
+        if not canonical or not packets:
+            raise MediaError("no packets available for stream comparison")
+        encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+        return {
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+            "tracks": len(canonical),
+            "packets": len(packets),
+        }
+
+    def size(self, asset):
+        return self._path(asset).stat().st_size
+
+    def identity(self, asset):
+        path = self._path(asset)
+        key = ("metadata", path)
+        if key not in self.cache:
+            self.cache[key] = self._metadata(path)
+            self._path(asset)
+        metadata = self.cache[key]
+        return metadata, metadata.get("ContentIdentifier") or metadata.get(
+            "MediaGroupUUID"
+        )
+
+    @staticmethod
+    def _range(metadata, size):
+        directory = metadata.get("ContainerDirectory", [])
+        if isinstance(directory, list) and metadata.get("MotionPhoto"):
+            for index, entry in enumerate(directory):
+                if not isinstance(entry, dict) or not isinstance(
+                    entry.get("Item"), dict
+                ):
+                    raise MediaError("invalid container directory structure")
+                item = entry.get("Item", {})
+                if item.get("Semantic") == "MotionPhoto":
+                    # The standard requires the video to be the final item. Older
+                    # Samsung files can add padding; let ExifTool handle those.
+                    if index != len(directory) - 1:
+                        raise MediaError("MotionPhoto is not the final container item")
+                    length = item.get("Length")
+                    if type(length) is not int or length <= 0:
+                        raise MediaError("invalid MotionPhoto item length")
+                    padding = item.get("Padding", 0)
+                    if type(padding) is not int or padding != 0:
+                        raise MediaError("unsupported container video padding")
+                    return size - length, length, "ContainerDirectory"
+        if metadata.get("MicroVideo"):
+            length = metadata.get("MicroVideoOffset")
+            if type(length) is not int or length <= 0:
+                raise MediaError("invalid MicroVideoOffset")
+            return size - length, length, "MicroVideoOffset"
+        return None
+
+    def photo(self, asset):
+        path = self._path(asset)
+        key = ("photo", path)
+        if key in self.cache:
+            return self.cache[key]
+        metadata, cid = self.identity(asset)
+        captured = metadata.get("DateTimeOriginal") or metadata.get("CreateDate")
+        binary_tag = None
+        if metadata.get("MotionPhotoVideo"):
+            binary_tag = "MotionPhotoVideo"
+        elif metadata.get("EmbeddedVideoType") == "MotionPhoto_Data" and metadata.get(
+            "EmbeddedVideoFile"
+        ):
+            binary_tag = "EmbeddedVideoFile"
+        region = None if binary_tag else self._range(metadata, path.stat().st_size)
+        if binary_tag is None and region is None:
+            if metadata.get("MotionPhoto"):
+                raise MediaError("MotionPhoto flag without an extractable clip")
+            info = PhotoInfo(None, cid, captured)
+        else:
+            with tempfile.NamedTemporaryFile(
+                suffix=".mp4",
+                dir=self.temporary_directory,
+            ) as temporary:
+                destination = Path(temporary.name)
+                if binary_tag:
+                    if path.stat().st_size > self.max_clip_bytes:
+                        raise MediaError(
+                            "source too large for bounded binary-tag extraction"
+                        )
+                    # Redirect the requested binary tag to a temporary file, never
+                    # pass ExifTool any metadata assignment or overwrite option.
+                    subprocess.run(
+                        ["exiftool", "-b", f"-{binary_tag}", str(path)],
+                        stdout=temporary,
+                        stderr=subprocess.PIPE,
+                        timeout=self.timeout,
+                        check=True,
+                    )
+                    temporary.flush()
+                    extraction = binary_tag
+                    length = destination.stat().st_size
+                else:
+                    offset, length, extraction = region
+                    if offset <= 0 or length > self.max_clip_bytes:
+                        raise MediaError(
+                            "embedded clip offset or size outside supported limits"
+                        )
+                    with path.open("rb") as source:
+                        source.seek(offset)
+                        remaining = length
+                        while remaining:
+                            block = source.read(min(remaining, 1024 * 1024))
+                            if not block:
+                                raise MediaError("truncated embedded clip")
+                            temporary.write(block)
+                            remaining -= len(block)
+                    temporary.flush()
+                if not 0 < length <= self.max_clip_bytes:
+                    raise MediaError("embedded clip size outside supported limits")
+                self._probe(destination)
+                streams = self._streams(destination) if self.compare_streams else None
+                info = PhotoInfo(
+                    self._hash(destination), cid, captured, extraction, streams
+                )
+        self._path(asset)
+        self.cache[key] = info
+        return info
+
+    def verify_unchanged(self):
+        for path, signature in self.snapshots.items():
+            stat = path.stat()
+            current = (
+                stat.st_dev,
+                stat.st_ino,
+                stat.st_size,
+                stat.st_mtime_ns,
+                stat.st_ctime_ns,
+            )
+            if current != signature:
+                raise MediaError(
+                    "a source file changed during the audit; discard this report"
+                )

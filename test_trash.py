@@ -82,7 +82,7 @@ class TrashTests(unittest.TestCase):
             "video_bytes": 12,
             "full_file_offset": 4,
         }
-        self.plan = {"eligible": [self.row]}
+        self.plan = {"eligible": [self.row], "max_clip_mib": 256}
         self.api = Mock()
         self.api.preflight.return_value = {"enabled": True, "days": 30}
         self.api.get_asset.side_effect = self.api_asset

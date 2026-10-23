@@ -121,7 +121,7 @@ class Validator:
             r["linked_video_id"] for r in state.values() if r["linked_video_id"]
         }
         self.path_ids = defaultdict(set)
-        self.inode_ids = original_inode_index(state, paths)
+        self.inode_ids = None
         for row in state.values():
             self.path_ids[row["path"]].add(row["id"])
 
@@ -198,10 +198,15 @@ class Validator:
         resolved = [self.paths.resolve(a.path) for a in (va, pa, ra)]
         if len({(p.stat().st_dev, p.stat().st_ino) for p in resolved}) != 3:
             raise ValueError("source_files_alias")
-        stat = resolved[0].stat()
-        if self.inode_ids[(stat.st_dev, stat.st_ino)] != {video["id"]}:
-            raise ValueError("shared_original_inode")
         if verify_media:
+            # The preliminary API preflight does not certify media. Build the
+            # global alias index once for this fresh final snapshot, not twice
+            # per batch. Never reuse it across database snapshots or batches.
+            if self.inode_ids is None:
+                self.inode_ids = original_inode_index(self.state, self.paths)
+            stat = resolved[0].stat()
+            if self.inode_ids[(stat.st_dev, stat.st_ino)] != {video["id"]}:
+                raise ValueError("shared_original_inode")
             fingerprint = media.fingerprint(va)
             if (
                 fingerprint.sha256 != row["video_sha256"]

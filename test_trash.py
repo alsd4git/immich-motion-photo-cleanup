@@ -15,7 +15,7 @@ from immich_api import ApiError, ImmichAPI, NoRedirect, read_key
 from inventory import LibraryPaths, database_query
 from sidecars import compare, xml_fingerprint
 from trash import Journal, backup_sidecars, process
-from trash_plan import Validator, evidence_from_run, make_plan
+from trash_plan import Validator, evidence_from_run, make_plan, original_inode_index
 
 OWNER, PHOTO, VIDEO, RETAINED, OTHER = [str(UUID(int=i)) for i in range(1, 6)]
 
@@ -124,6 +124,35 @@ class TrashTests(unittest.TestCase):
 
     def test_full_file_and_companion_are_reproved_without_media_tools(self):
         self.assertEqual(Validator(self.state, self.paths).verify(self.row), self.row)
+
+    def test_alias_index_is_deferred_until_the_final_byte_proof(self):
+        with patch(
+            "trash_plan.original_inode_index", wraps=original_inode_index
+        ) as index:
+            validator = Validator(self.state, self.paths)
+            validator.verify(self.row, verify_media=False)
+            index.assert_not_called()
+            validator.verify(self.row)
+            index.assert_called_once()
+            validator.verify(self.row)
+            index.assert_called_once()
+
+    def test_alias_added_during_api_preflight_blocks_the_final_write(self):
+        def read(identifier):
+            if OTHER not in self.state:
+                alias = self.library / "new-alias.mp4"
+                os.link(self.state[VIDEO]["path"], alias)
+                self.state[OTHER] = {
+                    "id": OTHER,
+                    "path": str(alias),
+                    "linked_video_id": None,
+                }
+            return self.api_asset(identifier)
+
+        self.api.get_asset.side_effect = read
+        with self.assertRaisesRegex(ValueError, "shared_original_inode"):
+            self.execute()
+        self.api.trash.assert_not_called()
 
     def test_each_personal_property_blocks_trash(self):
         for field in (

@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from uuid import UUID
 
 from immich_api import ApiError, ImmichAPI, NoRedirect, read_key
-from inventory import LibraryPaths
+from inventory import LibraryPaths, database_query
 from sidecars import compare, xml_fingerprint
 from trash import Journal, backup_sidecars, process
 from trash_plan import Validator, evidence_from_run, make_plan
@@ -115,7 +115,7 @@ class TrashTests(unittest.TestCase):
         return process(
             self.plan,
             self.api,
-            lambda: copy.deepcopy(self.state),
+            lambda ids: copy.deepcopy(self.state),
             self.paths,
             self.journal,
             OWNER,
@@ -163,6 +163,15 @@ class TrashTests(unittest.TestCase):
             "status": "trashed",
         }
         self.state[OTHER] = other
+        with self.assertRaisesRegex(ValueError, "reference_changed"):
+            Validator(self.state, self.paths).verify(self.row)
+
+    def test_minimal_global_reference_still_protects_a_companion(self):
+        self.state[OTHER] = {
+            "id": OTHER,
+            "path": str(self.library / "unrelated.jpg"),
+            "linked_video_id": VIDEO,
+        }
         with self.assertRaisesRegex(ValueError, "reference_changed"):
             Validator(self.state, self.paths).verify(self.row)
 
@@ -395,6 +404,22 @@ class SidecarTests(unittest.TestCase):
 
 
 class ApiTests(unittest.TestCase):
+    def test_database_selection_rejects_injection_before_starting_a_process(self):
+        with patch("inventory.subprocess.run") as process:
+            with self.assertRaises(ValueError):
+                database_query(
+                    "database", "trash_state.sql", ["'); DELETE FROM asset; --"]
+                )
+            process.assert_not_called()
+
+    def test_database_selection_stays_on_stdin_not_process_arguments(self):
+        with patch("inventory.subprocess.run", return_value=Mock(stdout="")) as process:
+            database_query("database", "trash_state.sql", [VIDEO])
+            self.assertNotIn(VIDEO, " ".join(process.call_args.args[0]))
+            self.assertIn(
+                "\\set selected_ids '" + VIDEO + "'", process.call_args.kwargs["input"]
+            )
+
     def test_https_only_except_loopback_and_no_url_credentials(self):
         for url in (
             "http://server/api",

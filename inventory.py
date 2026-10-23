@@ -6,6 +6,7 @@ import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from uuid import UUID
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".avif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -95,10 +96,21 @@ def serialize_inventory(assets):
     )
 
 
-def database_query(container, filename):
+def asset_id(value):
+    if not isinstance(value, str) or str(UUID(value)) != value:
+        raise ValueError("expected a canonical asset UUID")
+    return value
+
+
+def database_query(container, filename, selected_ids=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
         raise ValueError("invalid database container name")
     sql = Path(__file__).with_name(filename).read_text()
+    if filename == "trash_state.sql":
+        # Only validated UUIDs enter the psql variable. Keep large selections on
+        # stdin, not argv, both for privacy and OS argument-length limits.
+        selection = ",".join(sorted(asset_id(value) for value in (selected_ids or [])))
+        sql = "\\set selected_ids '" + selection + "'\n" + sql
     result = subprocess.run(
         [
             "docker",

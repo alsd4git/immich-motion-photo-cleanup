@@ -14,10 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from immich_api import ImmichAPI, read_key
-from inventory import LibraryPaths
+from inventory import LibraryPaths, asset_id
 from run_batches import atomic_json
 from sidecars import read_sidecar
-from trash_plan import Validator, asset_id, current_state, evidence_from_run, make_plan
+from trash_plan import Validator, current_state, evidence_from_run, make_plan
 
 
 def now():
@@ -158,7 +158,7 @@ def process(
     ]
     if pending:
         api.preflight(owner, for_restore=restore)
-        state = load_state()
+        state = load_state({r["video_id"] for r in pending})
         for row in pending:
             current = state.get(row["video_id"])
             was_restore = statuses[row["video_id"]] == "restore_pending"
@@ -186,10 +186,16 @@ def process(
             break
         batches += 1
         retention = api.preflight(owner, for_restore=restore)
-        state = load_state()
+        batch = remaining[start : start + batch_size]
+        selected_ids = {
+            row[key]
+            for row in batch
+            for key in ("video_id", "photo_id", "linked_video_id")
+        }
+        state = load_state(selected_ids)
         validator = None if restore else Validator(state, paths)
         accepted = []
-        for row in remaining[start : start + batch_size]:
+        for row in batch:
             if restore:
                 current = state.get(row["video_id"])
                 if (
@@ -218,7 +224,7 @@ def process(
             continue
         # Recheck associations and bytes after the API reads, as close to the
         # write as possible. Immich's API has no atomic conditional-delete API.
-        latest = load_state()
+        latest = load_state(selected_ids)
         for row in accepted:
             for identifier in (
                 row["video_id"],
@@ -242,7 +248,7 @@ def process(
             api.restore(ids)
         else:
             api.trash(ids)
-        after = load_state()
+        after = load_state(selected_ids)
         for identifier in ids:
             row = after.get(identifier)
             expected = "active" if restore else "trashed"
@@ -310,8 +316,8 @@ def main(argv=None):
     try:
         paths = LibraryPaths(args.library_root, args.path_map)
 
-        def load_state():
-            return current_state(args.immich_db_container)
+        def load_state(selected_ids=None):
+            return current_state(args.immich_db_container, selected_ids)
 
         if args.operation == "plan":
             if not args.run or not args.output or args.execute:
@@ -319,9 +325,16 @@ def main(argv=None):
             paths.check_output(args.output)
             if args.output.resolve().is_relative_to(Path(__file__).resolve().parent):
                 raise ValueError("private plans must stay outside the Git checkout")
+            evidence = evidence_from_run(args.run)
+            selected_ids = {
+                row[key]
+                for options in evidence.values()
+                for row in options
+                for key in ("video_id", "photo_id", "linked_video_id")
+            }
             result = make_plan(
-                evidence_from_run(args.run),
-                load_state(),
+                evidence,
+                load_state(selected_ids),
                 paths,
                 args.owner,
                 args.preserve_sidecars,

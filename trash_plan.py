@@ -4,27 +4,21 @@ import json
 import os
 from collections import Counter, defaultdict
 from pathlib import Path
-from uuid import UUID
 
-from inventory import Asset, database_query
+from inventory import Asset, asset_id, database_query
 from media import MediaReader
 from sidecars import compare, manifests
 
 
-def asset_id(value):
-    if not isinstance(value, str) or str(UUID(value)) != value:
-        raise ValueError("expected a canonical asset UUID")
-    return value
-
-
-def current_state(container):
+def current_state(container, selected_ids=None):
     result = {}
-    for line in database_query(container, "trash_state.sql"):
+    for line in database_query(container, "trash_state.sql", selected_ids):
         if not line.strip():
             continue
         row = json.loads(line)
         identifier = asset_id(row["id"])
-        asset_id(row["owner_id"])
+        if "owner_id" in row:
+            asset_id(row["owner_id"])
         if identifier in result:
             raise ValueError("duplicate asset in current state")
         result[identifier] = row

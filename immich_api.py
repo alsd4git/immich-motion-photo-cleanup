@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from trash_plan import asset_id
+from inventory import asset_id
 
 
 class ApiError(ValueError):

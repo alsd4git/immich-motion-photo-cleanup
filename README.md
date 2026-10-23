@@ -219,6 +219,11 @@ Additional checks protect:
 - Favorites, albums, tags or memory memberships absent from the retaining photo. Associations already
   on that photo do not block trashing the extra video.
 
+Association details are read only for the selected assets. The database snapshot
+still includes every asset's ID, original path and live-photo reference, so
+cross-account references and file aliases remain protected without loading
+unrelated descriptions or album memberships into each batch.
+
 The tool excludes protected assets. It does not copy or merge their metadata.
 Without `--preserve-sidecars`, it also excludes videos with sidecars. With that
 option, it hashes the current video sidecars into the plan and checks whether

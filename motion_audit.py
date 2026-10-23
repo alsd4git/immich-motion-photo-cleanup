@@ -17,6 +17,7 @@ from inventory import (
     IMAGE_EXTENSIONS,
     VIDEO_EXTENSIONS,
     LibraryPaths,
+    check_private_output,
     database_inventory,
     filesystem_inventory,
     read_inventory,
@@ -551,7 +552,9 @@ def main(argv=None):
         roots = args.library_root + ([args.root] if args.root else [])
         paths = LibraryPaths(roots, args.path_map)
         paths.check_output(args.output)
+        check_private_output(args.output)
         paths.check_output(args.temp_dir)
+        check_private_output(args.temp_dir)
         if not args.temp_dir.is_dir():
             raise ValueError("--temp-dir must be an existing directory")
         if args.output.exists():

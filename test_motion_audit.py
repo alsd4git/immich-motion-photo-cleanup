@@ -10,7 +10,13 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from inventory import Asset, LibraryPaths, filesystem_inventory, read_inventory
+from inventory import (
+    Asset,
+    LibraryPaths,
+    check_private_output,
+    filesystem_inventory,
+    read_inventory,
+)
 from media import Fingerprint, MediaError, MediaReader, PhotoInfo
 from motion_audit import audit, main
 
@@ -226,6 +232,46 @@ class InputTests(unittest.TestCase):
         metadata["ContainerDirectory"].append({"Item": {"Semantic": "Other"}})
         with self.assertRaises(MediaError):
             MediaReader._range(metadata, 200)
+
+
+class PrivateOutputTests(unittest.TestCase):
+    def test_repo_checkout_rejected(self):
+        with self.assertRaisesRegex(ValueError, "outside the Git checkout"):
+            check_private_output(Path(__file__).resolve().parent / "reports" / "user-data")
+
+    def test_external_private_directory_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            check_private_output(Path(directory) / "audit-run")
+
+    def test_direct_audit_rejects_checkout_before_reading_media(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(__file__).resolve().parent / "private-output-regression"
+            with mock.patch(
+                "motion_audit.shutil.which", return_value="synthetic-tool"
+            ), mock.patch("motion_audit.audit") as analyze:
+                result = main(
+                    ["--root", directory, "--output", str(output)]
+                )
+            self.assertEqual(result, 2)
+            analyze.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_direct_audit_rejects_checkout_temp_directory_before_reading_media(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            library = root / "library"
+            library.mkdir()
+            output = root / "report"
+            with mock.patch(
+                "motion_audit.shutil.which", return_value="synthetic-tool"
+            ), mock.patch("motion_audit.audit") as analyze:
+                result = main([
+                    "--root", str(library), "--output", str(output),
+                    "--temp-dir", str(Path(__file__).resolve().parent),
+                ])
+            self.assertEqual(result, 2)
+            analyze.assert_not_called()
+            self.assertFalse(output.exists())
 
 
 @unittest.skipUnless(

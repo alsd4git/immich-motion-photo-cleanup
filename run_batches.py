@@ -15,6 +15,7 @@ from pathlib import Path
 
 from inventory import (
     LibraryPaths,
+    check_private_output,
     database_inventory,
     filesystem_inventory,
     read_inventory,
@@ -165,6 +166,9 @@ def run(args, run_batch=audit_main):
         args.library_root + ([args.root] if args.root else []), args.path_map
     )
     paths.check_output(root)
+    check_private_output(root)
+    paths.check_output(args.temp_dir)
+    check_private_output(args.temp_dir)
     config = {
         "roots": [
             str(path.resolve())

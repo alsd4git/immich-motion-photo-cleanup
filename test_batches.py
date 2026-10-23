@@ -135,6 +135,27 @@ class BatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "directory exists"):
             run(self.args(), self.fake_batch)
 
+    def test_new_and_resumed_runs_reject_checkout_before_writing(self):
+        self.output = Path(__file__).resolve().parent / "private-batch-regression"
+        for resume in (False, True):
+            with self.subTest(resume=resume), self.assertRaisesRegex(
+                ValueError, "outside the Git checkout"
+            ):
+                run(self.args(resume=resume), self.fake_batch)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.output.exists())
+
+    def test_new_and_resumed_runs_reject_checkout_temp_before_writing(self):
+        for resume in (False, True):
+            args = self.args(resume=resume)
+            args.temp_dir = Path(__file__).resolve().parent
+            with self.subTest(resume=resume), self.assertRaisesRegex(
+                ValueError, "outside the Git checkout"
+            ):
+                run(args, self.fake_batch)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

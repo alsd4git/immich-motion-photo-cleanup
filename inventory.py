@@ -223,3 +223,11 @@ class LibraryPaths:
             raise ValueError(
                 "output and temporary directories must be outside the library"
             )
+
+
+def check_private_output(path):
+    """Keep sensitive audit artefacts out of the checked-out source tree."""
+    resolved = Path(path).resolve()
+    source_root = Path(__file__).resolve().parent
+    if resolved.is_relative_to(source_root):
+        raise ValueError("private reports must be written outside the Git checkout")

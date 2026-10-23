@@ -1,6 +1,7 @@
 """Revalidate exact containment and Immich associations before proposing trash."""
 
 import json
+import os
 from collections import Counter, defaultdict
 from pathlib import Path
 from uuid import UUID
@@ -81,6 +82,40 @@ def active(row):
     )
 
 
+def original_inode_index(state, paths):
+    """Use directory-entry inodes instead of seeking to every original's inode.
+
+    Unix scandir supplies regular-file inode numbers in the directory listing.
+    Symlinks still need canonical resolution and a target stat. A candidate
+    absent from this index is rejected, including unsupported mount layouts.
+    """
+    parents = defaultdict(lambda: defaultdict(set))
+    result = defaultdict(set)
+    for row in state.values():
+        try:
+            path = paths.mapped(Path(row["path"]))
+            parents[path.parent][path.name].add(row["id"])
+        except ValueError:
+            continue
+    for parent, names in parents.items():
+        try:
+            parent = paths.resolve(parent, directory=True)
+            device = parent.stat().st_dev
+            with os.scandir(parent) as entries:
+                for entry in entries:
+                    if entry.name not in names:
+                        continue
+                    if entry.is_symlink():
+                        info = paths.resolve(Path(entry.path)).stat()
+                        key = (info.st_dev, info.st_ino)
+                    else:
+                        key = (device, entry.inode())
+                    result[key].update(names[entry.name])
+        except (OSError, ValueError):
+            continue  # A missing/unreadable candidate cannot pass verification.
+    return result
+
+
 class Validator:
     def __init__(self, state, paths):
         self.state = state
@@ -89,16 +124,9 @@ class Validator:
             r["linked_video_id"] for r in state.values() if r["linked_video_id"]
         }
         self.path_ids = defaultdict(set)
-        self.inode_ids = defaultdict(set)
+        self.inode_ids = original_inode_index(state, paths)
         for row in state.values():
             self.path_ids[row["path"]].add(row["id"])
-            try:
-                # Index metadata only. Actual media/sidecar opens still resolve
-                # every symlink and enforce the canonical library boundary.
-                stat = paths.mapped(Path(row["path"])).stat()
-                self.inode_ids[(stat.st_dev, stat.st_ino)].add(row["id"])
-            except (OSError, ValueError):
-                pass  # Missing/out-of-scope originals cannot alias a readable file.
 
     def verify(self, row, preserve_sidecars=False):
         video = self.state.get(asset_id(row["video_id"]))

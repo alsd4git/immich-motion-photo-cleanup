@@ -198,6 +198,24 @@ class TrashTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "shared_original_inode"):
             Validator(self.state, self.paths).verify(self.row)
 
+    def test_symlink_alias_of_another_original_is_protected(self):
+        alias = self.library / "alias.mp4"
+        alias.symlink_to(self.state[VIDEO]["path"])
+        self.state[OTHER] = {**self.state[VIDEO], "id": OTHER, "path": str(alias)}
+        with self.assertRaisesRegex(ValueError, "shared_original_inode"):
+            Validator(self.state, self.paths).verify(self.row)
+
+    def test_directory_symlink_alias_is_protected(self):
+        alias = self.library / "alias"
+        alias.symlink_to(self.library, target_is_directory=True)
+        self.state[OTHER] = {
+            **self.state[VIDEO],
+            "id": OTHER,
+            "path": str(alias / "sample.mp4"),
+        }
+        with self.assertRaisesRegex(ValueError, "shared_original_inode"):
+            Validator(self.state, self.paths).verify(self.row)
+
     def test_plan_excludes_stream_only_or_missing_proofs(self):
         result = make_plan({VIDEO: []}, self.state, self.paths)
         self.assertEqual(result["eligible"], [])

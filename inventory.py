@@ -187,16 +187,21 @@ class LibraryPaths:
             if path.is_relative_to(source):
                 path = target / path.relative_to(source)
                 break
-        if not any(path.is_relative_to(root) for root in self.roots + self.lexical_roots):
+        if not any(
+            path.is_relative_to(root) for root in self.roots + self.lexical_roots
+        ):
             raise ValueError("asset path escapes the allowed library roots")
         return path
 
-    def resolve(self, path):
+    def resolve(self, path, directory=False):
         path = self.mapped(path)
         path = path.resolve(strict=True)
         if not any(path.is_relative_to(root) for root in self.roots):
             raise ValueError("asset path escapes the allowed library roots")
-        if not path.is_file():
+        if directory:
+            if not path.is_dir():
+                raise ValueError("asset parent must be a directory")
+        elif not path.is_file():
             raise ValueError("asset path must be a regular file")
         return path
 

@@ -106,7 +106,10 @@ def original_inode_index(state, paths):
                     if entry.name not in names:
                         continue
                     if entry.is_symlink():
-                        info = paths.resolve(Path(entry.path)).stat()
+                        try:
+                            info = paths.resolve(Path(entry.path)).stat()
+                        except (OSError, ValueError):
+                            continue
                         key = (info.st_dev, info.st_ino)
                     else:
                         key = (device, entry.inode())

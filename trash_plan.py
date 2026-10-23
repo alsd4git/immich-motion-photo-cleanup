@@ -114,7 +114,10 @@ def original_inode_index(state, paths):
 
 
 class Validator:
-    def __init__(self, state, paths):
+    def __init__(self, state, paths, max_clip_mib=256):
+        if type(max_clip_mib) is not int or max_clip_mib <= 0:
+            raise ValueError("invalid audited max clip MiB")
+        self.max_clip_bytes = max_clip_mib * 1024**2
         self.state = state
         self.paths = paths
         self.references = {
@@ -193,7 +196,7 @@ class Validator:
         if self.path_ids[video["path"]] != {video["id"]}:
             raise ValueError("shared_original_path")
         # A new reader for each proof also catches changes between batches.
-        media = MediaReader(self.paths, None)
+        media = MediaReader(self.paths, None, max_clip_bytes=self.max_clip_bytes)
         va, pa, ra = map(to_asset, (video, photo, retained))
         resolved = [self.paths.resolve(a.path) for a in (va, pa, ra)]
         if len({(p.stat().st_dev, p.stat().st_ino) for p in resolved}) != 3:
@@ -242,8 +245,8 @@ class Validator:
         return result
 
 
-def make_plan(evidence, state, paths, owner=None, preserve_sidecars=False):
-    validator = Validator(state, paths)
+def make_plan(evidence, state, paths, owner=None, preserve_sidecars=False, max_clip_mib=256):
+    validator = Validator(state, paths, max_clip_mib)
     eligible, excluded = [], []
     for video_id, options in sorted(evidence.items()):
         reasons = []
@@ -264,6 +267,7 @@ def make_plan(evidence, state, paths, owner=None, preserve_sidecars=False):
             )
     return {
         "schema": 1,
+        "max_clip_mib": max_clip_mib,
         "read_only": True,
         "eligible": eligible,
         "excluded": excluded,

@@ -1,0 +1,24 @@
+[project]
+name = "immich-motion-photo-cleanup"
+version = "0.1.0"
+description = "Audit and safely clean up redundant Immich Motion Photo videos"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+# Preserve direct python3 script execution; this is not yet a packaged CLI.
+package = false
+
+[dependency-groups]
+dev = ["ruff==0.16.5"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# Start with conventional correctness checks; introduce format enforcement
+# separately after a deliberate, reviewed formatting pass.
+select = ["E4", "E7", "E9", "F"]

@@ -540,7 +540,7 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("Excluded candidates: 2", output)
         self.assertIn("protected_album: 2", output)
         self.assertIn("Plan SHA256: abc123", output)
-        self.assertIn("\\n", output)
+        self.assertIn("\n", output)
 
     def test_empty_plan_and_preflight(self):
         plan = {"eligible": [], "excluded": [], "eligible_bytes": 0, "exclusion_reasons": {}}

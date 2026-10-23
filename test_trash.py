@@ -492,14 +492,22 @@ class PlanCLITests(unittest.TestCase):
 
     def arguments(self):
         return [
-            "plan", "--run", str(self.run), "--output", str(self.output),
-            "--library-root", str(self.library), "--immich-db-container", "synthetic",
+            "plan",
+            "--run",
+            str(self.run),
+            "--output",
+            str(self.output),
+            "--library-root",
+            str(self.library),
+            "--immich-db-container",
+            "synthetic",
         ]
 
     def test_plan_cli_persists_the_completed_audit_limit(self):
         (self.run / "progress.json").write_text(json.dumps(self.progress))
-        with patch("trash.current_state", return_value={}), contextlib.redirect_stdout(
-            io.StringIO()
+        with (
+            patch("trash.current_state", return_value={}),
+            contextlib.redirect_stdout(io.StringIO()),
         ):
             result = main(self.arguments())
         self.assertEqual(result, 0)
@@ -509,8 +517,10 @@ class PlanCLITests(unittest.TestCase):
 
     def test_plan_cli_rejects_missing_malformed_or_incomplete_audit_limits(self):
         invalid = [
-            {}, {"status": "running", "config": {"max_clip_mib": 512}},
-            {"status": "complete"}, {"status": "complete", "config": None},
+            {},
+            {"status": "running", "config": {"max_clip_mib": 512}},
+            {"status": "complete"},
+            {"status": "complete", "config": None},
         ] + [
             {"status": "complete", "config": {"max_clip_mib": value}}
             for value in (None, True, 0, -1, "512")
@@ -518,8 +528,9 @@ class PlanCLITests(unittest.TestCase):
         for progress in invalid:
             with self.subTest(progress=progress):
                 (self.run / "progress.json").write_text(json.dumps(progress))
-                with patch("trash.current_state") as state, contextlib.redirect_stderr(
-                    io.StringIO()
+                with (
+                    patch("trash.current_state") as state,
+                    contextlib.redirect_stderr(io.StringIO()),
                 ):
                     result = main(self.arguments())
                 self.assertEqual(result, 2)
@@ -529,7 +540,10 @@ class PlanCLITests(unittest.TestCase):
     def test_plan_cli_json_is_parseable_and_matches_the_saved_plan(self):
         (self.run / "progress.json").write_text(json.dumps(self.progress))
         output = io.StringIO()
-        with patch("trash.current_state", return_value={}), contextlib.redirect_stdout(output):
+        with (
+            patch("trash.current_state", return_value={}),
+            contextlib.redirect_stdout(output),
+        ):
             result = main(self.arguments() + ["--json"])
         self.assertEqual(result, 0)
         summary = json.loads(output.getvalue())
@@ -547,10 +561,15 @@ class DryRunCLITests(unittest.TestCase):
         self.library = self.root / "library"
         self.library.mkdir()
         self.plan = self.root / "plan.json"
-        self.plan.write_text(json.dumps({
-            "schema": 1, "max_clip_mib": 512,
-            "eligible": [{"owner_id": OWNER}, {"owner_id": OTHER}],
-        }))
+        self.plan.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "max_clip_mib": 512,
+                    "eligible": [{"owner_id": OWNER}, {"owner_id": OTHER}],
+                }
+            )
+        )
         self.key = self.root / "key"
         self.key.write_text("synthetic-test-key")
         self.key.chmod(0o600)
@@ -558,10 +577,21 @@ class DryRunCLITests(unittest.TestCase):
 
     def arguments(self, operation):
         return [
-            operation, "--plan", str(self.plan), "--owner", OWNER,
-            "--url", "https://example.invalid/api", "--api-key-file", str(self.key),
-            "--journal", str(self.journal), "--library-root", str(self.library),
-            "--immich-db-container", "synthetic",
+            operation,
+            "--plan",
+            str(self.plan),
+            "--owner",
+            OWNER,
+            "--url",
+            "https://example.invalid/api",
+            "--api-key-file",
+            str(self.key),
+            "--journal",
+            str(self.journal),
+            "--library-root",
+            str(self.library),
+            "--immich-db-container",
+            "synthetic",
         ]
 
     def test_human_and_json_previews_never_write_or_query_asset_state(self):
@@ -569,9 +599,18 @@ class DryRunCLITests(unittest.TestCase):
             for use_json in (False, True):
                 with self.subTest(operation=operation, json=use_json):
                     output = io.StringIO()
-                    with patch("trash.ImmichAPI") as api, patch("trash.current_state") as state, contextlib.redirect_stdout(output):
-                        api.return_value.preflight.return_value = {"enabled": True, "days": 30}
-                        args = self.arguments(operation) + (["--json"] if use_json else [])
+                    with (
+                        patch("trash.ImmichAPI") as api,
+                        patch("trash.current_state") as state,
+                        contextlib.redirect_stdout(output),
+                    ):
+                        api.return_value.preflight.return_value = {
+                            "enabled": True,
+                            "days": 30,
+                        }
+                        args = self.arguments(operation) + (
+                            ["--json"] if use_json else []
+                        )
                         self.assertEqual(main(args), 0)
                     api.return_value.trash.assert_not_called()
                     api.return_value.restore.assert_not_called()
@@ -607,21 +646,35 @@ class SummaryTests(unittest.TestCase):
             "eligible": [{"video_id": "a"}],
             "excluded": [{"video_id": "b"}, {"video_id": "c"}],
             "eligible_bytes": 2 * 1024**3,
+            "owners": {OWNER: 1},
             "exclusion_reasons": {"protected_album": 2, "shared": 1},
         }
         output = plan_summary(plan, "abc123")
         self.assertIn("2.00 GiB", output)
         self.assertIn("Excluded candidates: 2", output)
+        self.assertIn("Owner scope: 1 account(s)", output)
         self.assertIn("protected_album: 2", output)
         self.assertIn("Plan SHA256: abc123", output)
         self.assertIn("\n", output)
 
     def test_empty_plan_and_preflight(self):
-        plan = {"eligible": [], "excluded": [], "eligible_bytes": 0, "exclusion_reasons": {}}
+        plan = {
+            "eligible": [],
+            "excluded": [],
+            "eligible_bytes": 0,
+            "exclusion_reasons": {},
+        }
         self.assertIn("0.00 MiB", plan_summary(plan))
-        self.assertIn("DRY RUN", preflight_summary({
-            "owner_candidates": 0, "retention_days": 30, "plan_sha256": "abc",
-        }))
+        self.assertIn(
+            "DRY RUN",
+            preflight_summary(
+                {
+                    "owner_candidates": 0,
+                    "retention_days": 30,
+                    "plan_sha256": "abc",
+                }
+            ),
+        )
         with self.assertRaises(ValueError):
             human_size(-1)
 

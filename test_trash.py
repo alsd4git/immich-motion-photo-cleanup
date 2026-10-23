@@ -1,7 +1,9 @@
 """Synthetic containment, metadata protection and journal/API safety tests."""
 
+import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -13,9 +15,16 @@ from uuid import UUID
 
 from immich_api import ApiError, ImmichAPI, NoRedirect, read_key
 from inventory import LibraryPaths, database_query
+from media import MediaReader
 from sidecars import compare, xml_fingerprint
-from trash import Journal, backup_sidecars, process
-from trash_plan import Validator, evidence_from_run, make_plan, original_inode_index
+from trash import Journal, backup_sidecars, main, process
+from trash_plan import (
+    Validator,
+    evidence_from_run,
+    make_plan,
+    original_inode_index,
+    plan_clip_limit,
+)
 
 OWNER, PHOTO, VIDEO, RETAINED, OTHER = [str(UUID(int=i)) for i in range(1, 6)]
 
@@ -82,7 +91,7 @@ class TrashTests(unittest.TestCase):
             "video_bytes": 12,
             "full_file_offset": 4,
         }
-        self.plan = {"eligible": [self.row]}
+        self.plan = {"schema": 2, "eligible": [self.row], "max_clip_mib": 256}
         self.api = Mock()
         self.api.preflight.return_value = {"enabled": True, "days": 30}
         self.api.get_asset.side_effect = self.api_asset
@@ -124,6 +133,38 @@ class TrashTests(unittest.TestCase):
 
     def test_full_file_and_companion_are_reproved_without_media_tools(self):
         self.assertEqual(Validator(self.state, self.paths).verify(self.row), self.row)
+
+    def test_reviewed_limit_reaches_both_execution_validation_passes(self):
+        self.plan["max_clip_mib"] = 512
+        with patch("trash_plan.MediaReader", wraps=MediaReader) as reader:
+            self.assertEqual(self.execute(), {"trashed": 1})
+        self.assertEqual(reader.call_count, 2)
+        for invocation in reader.call_args_list:
+            self.assertEqual(invocation.kwargs["max_clip_bytes"], 512 * 1024**2)
+
+    def test_legacy_plan_retains_its_historical_limit(self):
+        self.plan["schema"] = 1
+        self.plan.pop("max_clip_mib")
+        with patch("trash_plan.MediaReader", wraps=MediaReader) as reader:
+            self.assertEqual(self.execute(), {"trashed": 1})
+        for invocation in reader.call_args_list:
+            self.assertEqual(invocation.kwargs["max_clip_bytes"], 256 * 1024**2)
+
+    def test_configured_limit_is_enforced_on_synthetic_containment(self):
+        payload = b"v" * (1024**2 + 1)
+        Path(self.state[VIDEO]["path"]).write_bytes(payload)
+        Path(self.state[PHOTO]["path"]).write_bytes(b"JPEG" + payload)
+        Path(self.state[RETAINED]["path"]).write_bytes(payload)
+        row = {
+            **self.row,
+            "video_bytes": len(payload),
+            "video_sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        with self.assertRaisesRegex(ValueError, "exceeds --max-clip-mib"):
+            Validator(self.state, self.paths, max_clip_mib=1).verify(row)
+        self.assertEqual(
+            Validator(self.state, self.paths, max_clip_mib=2).verify(row), row
+        )
 
     def test_alias_index_is_deferred_until_the_final_byte_proof(self):
         with patch(
@@ -400,6 +441,82 @@ class TrashTests(unittest.TestCase):
             Validator(self.state, self.paths).verify(self.row)
         self.state[PHOTO]["memories"] = ["memory"]
         Validator(self.state, self.paths).verify(self.row)
+
+
+class ClipSizePropagationTests(unittest.TestCase):
+    def test_plan_schemas_distinguish_legacy_and_explicit_limits(self):
+        self.assertEqual(plan_clip_limit({"schema": 1}), 256)
+        for schema in (1, 2):
+            self.assertEqual(plan_clip_limit({"schema": schema, "max_clip_mib": 512}), 512)
+        for plan in (
+            {}, {"schema": True}, {"schema": 3}, {"schema": 2},
+            {"schema": 1, "max_clip_mib": None},
+            {"schema": 2, "max_clip_mib": "512"},
+        ):
+            with self.subTest(plan=plan), self.assertRaises(ValueError):
+                plan_clip_limit(plan)
+
+    def test_validator_stores_configured_limit_in_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = LibraryPaths([Path(directory)], [])
+            validator = Validator({}, paths, max_clip_mib=512)
+            self.assertEqual(validator.max_clip_bytes, 512 * 1024**2)
+
+    def test_invalid_limits_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = LibraryPaths([Path(directory)], [])
+            for value in (0, -1, None, True, "512"):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    Validator({}, paths, max_clip_mib=value)
+
+class PlanCLITests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.library = self.root / "library"
+        self.library.mkdir()
+        self.run = self.root / "run"
+        self.run.mkdir()
+        self.output = self.root / "plan"
+        self.progress = {"status": "complete", "config": {"max_clip_mib": 512}}
+        (self.run / "summary.json").write_text(json.dumps({"proposals": []}))
+
+    def arguments(self):
+        return [
+            "plan", "--run", str(self.run), "--output", str(self.output),
+            "--library-root", str(self.library), "--immich-db-container", "synthetic",
+        ]
+
+    def test_plan_cli_persists_the_completed_audit_limit(self):
+        (self.run / "progress.json").write_text(json.dumps(self.progress))
+        with patch("trash.current_state", return_value={}), contextlib.redirect_stdout(
+            io.StringIO()
+        ):
+            result = main(self.arguments())
+        self.assertEqual(result, 0)
+        plan = json.loads((self.output / "plan.json").read_text())
+        self.assertEqual(plan["schema"], 2)
+        self.assertEqual(plan["max_clip_mib"], 512)
+
+    def test_plan_cli_rejects_missing_malformed_or_incomplete_audit_limits(self):
+        invalid = [
+            {}, {"status": "running", "config": {"max_clip_mib": 512}},
+            {"status": "complete"}, {"status": "complete", "config": None},
+        ] + [
+            {"status": "complete", "config": {"max_clip_mib": value}}
+            for value in (None, True, 0, -1, "512")
+        ]
+        for progress in invalid:
+            with self.subTest(progress=progress):
+                (self.run / "progress.json").write_text(json.dumps(progress))
+                with patch("trash.current_state") as state, contextlib.redirect_stderr(
+                    io.StringIO()
+                ):
+                    result = main(self.arguments())
+                self.assertEqual(result, 2)
+                state.assert_not_called()
+                self.assertFalse(self.output.exists())
 
 
 class SidecarTests(unittest.TestCase):

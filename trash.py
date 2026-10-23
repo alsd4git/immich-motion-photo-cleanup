@@ -17,7 +17,14 @@ from immich_api import ImmichAPI, read_key
 from inventory import LibraryPaths, asset_id
 from run_batches import atomic_json
 from sidecars import read_sidecar
-from trash_plan import Validator, current_state, evidence_from_run, make_plan
+from trash_plan import (
+    Validator,
+    current_state,
+    evidence_from_run,
+    make_plan,
+    plan_clip_limit,
+    validate_clip_limit,
+)
 
 
 def now():
@@ -142,6 +149,7 @@ def process(
     max_batches=1,
     restore=False,
 ):
+    limit = plan_clip_limit(plan)
     items = [r for r in plan["eligible"] if r["owner_id"] == owner]
     if len({r["video_id"] for r in items}) != len(items):
         raise ValueError("plan contains duplicate video IDs")
@@ -193,7 +201,7 @@ def process(
             for key in ("video_id", "photo_id", "linked_video_id")
         }
         state = load_state(selected_ids)
-        validator = None if restore else Validator(state, paths)
+        validator = None if restore else Validator(state, paths, limit)
         accepted = []
         for row in batch:
             if restore:
@@ -236,7 +244,7 @@ def process(
                         "asset changed during preflight; no batch write attempted"
                     )
         if not restore:
-            fresh_validator = Validator(latest, paths)
+            fresh_validator = Validator(latest, paths, limit)
             for row in accepted:
                 fresh_validator.verify(row)
             backup_sidecars(accepted, paths, journal.path.parent / "sidecar-backups")
@@ -325,6 +333,13 @@ def main(argv=None):
             paths.check_output(args.output)
             if args.output.resolve().is_relative_to(Path(__file__).resolve().parent):
                 raise ValueError("private plans must stay outside the Git checkout")
+            progress = json.loads((args.run / "progress.json").read_text())
+            if not isinstance(progress, dict) or progress.get("status") != "complete":
+                raise ValueError("trash planning requires a completed batch audit")
+            config = progress.get("config")
+            if not isinstance(config, dict):
+                raise ValueError("completed run has no audited configuration")
+            max_clip_mib = validate_clip_limit(config.get("max_clip_mib"))
             evidence = evidence_from_run(args.run)
             selected_ids = {
                 row[key]
@@ -338,6 +353,7 @@ def main(argv=None):
                 paths,
                 args.owner,
                 args.preserve_sidecars,
+                max_clip_mib,
             )
             result["created_at"] = now()
             args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -373,8 +389,7 @@ def main(argv=None):
         data = args.plan.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         plan = json.loads(data)
-        if plan.get("schema") != 1:
-            raise ValueError("unsupported plan schema")
+        plan_clip_limit(plan)
         api = ImmichAPI(args.url, read_key(args.api_key_file))
         retention = api.preflight(args.owner, for_restore=args.operation == "restore")
         if not args.execute:

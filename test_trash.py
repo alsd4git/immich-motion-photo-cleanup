@@ -1,0 +1,468 @@
+"""Synthetic containment, metadata protection and journal/API safety tests."""
+
+import copy
+import hashlib
+import json
+import os
+import tempfile
+import unittest
+import urllib.error
+from pathlib import Path
+from unittest.mock import Mock, patch
+from uuid import UUID
+
+from immich_api import ApiError, ImmichAPI, NoRedirect, read_key
+from inventory import LibraryPaths
+from sidecars import compare, xml_fingerprint
+from trash import Journal, backup_sidecars, process
+from trash_plan import Validator, evidence_from_run, make_plan
+
+OWNER, PHOTO, VIDEO, RETAINED, OTHER = [str(UUID(int=i)) for i in range(1, 6)]
+
+
+class TrashTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.library = self.root / "library"
+        self.library.mkdir()
+        self.paths = LibraryPaths([self.library], [])
+        self.state = {}
+        for identifier, name, kind, content in (
+            (PHOTO, "sample.jpg", "IMAGE", b"JPEG" + b"video" + b"trailer"),
+            (VIDEO, "sample.mp4", "VIDEO", b"video" + b"trailer"),
+            (RETAINED, "companion.mp4", "VIDEO", b"video"),
+        ):
+            path = self.library / name
+            path.write_bytes(content)
+            self.state[identifier] = {
+                "id": identifier,
+                "owner_id": OWNER,
+                "name": name,
+                "type": kind,
+                "path": str(path),
+                "status": "active",
+                "deleted_at": None,
+                "updated_at": "now",
+                "linked_video_id": None,
+                "visibility": "timeline",
+                "albums": [],
+                "tags": [],
+                **dict.fromkeys(
+                    (
+                        "offline",
+                        "external",
+                        "favorite",
+                        "stack",
+                        "edited",
+                        "description",
+                        "rating",
+                        "locked_metadata",
+                        "shared",
+                        "memory",
+                        "custom_metadata",
+                        "sidecar",
+                        "file_reference",
+                    ),
+                    False,
+                ),
+            }
+        self.state[PHOTO]["linked_video_id"] = RETAINED
+        self.state[RETAINED]["visibility"] = "hidden"
+        self.row = {
+            "owner_id": OWNER,
+            "photo_id": PHOTO,
+            "video_id": VIDEO,
+            "linked_video_id": RETAINED,
+            "photo_path": self.state[PHOTO]["path"],
+            "video_path": self.state[VIDEO]["path"],
+            "retained_companion_path": self.state[RETAINED]["path"],
+            "video_sha256": hashlib.sha256(b"videotrailer").hexdigest(),
+            "video_bytes": 12,
+            "full_file_offset": 4,
+        }
+        self.plan = {"eligible": [self.row]}
+        self.api = Mock()
+        self.api.preflight.return_value = {"enabled": True, "days": 30}
+        self.api.get_asset.side_effect = self.api_asset
+        self.api.trash.side_effect = lambda ids: self.change_status(ids, "trashed")
+        self.api.restore.side_effect = lambda ids: self.change_status(ids, "active")
+        self.journal = Journal(self.root / "journal.jsonl", {"schema": 1})
+        self.addCleanup(self.journal.close)
+
+    def api_asset(self, identifier):
+        row = self.state[identifier]
+        return {
+            "id": identifier,
+            "ownerId": row["owner_id"],
+            "type": row["type"],
+            "originalPath": row["path"],
+            "isTrashed": row["status"] == "trashed",
+            "isOffline": row["offline"],
+            "visibility": row["visibility"],
+            "livePhotoVideoId": row["linked_video_id"],
+        }
+
+    def change_status(self, ids, status):
+        for identifier in ids:
+            self.state[identifier]["status"] = status
+            self.state[identifier]["deleted_at"] = (
+                "today" if status == "trashed" else None
+            )
+
+    def execute(self, **kwargs):
+        return process(
+            self.plan,
+            self.api,
+            lambda: copy.deepcopy(self.state),
+            self.paths,
+            self.journal,
+            OWNER,
+            **kwargs,
+        )
+
+    def test_full_file_and_companion_are_reproved_without_media_tools(self):
+        self.assertEqual(Validator(self.state, self.paths).verify(self.row), self.row)
+
+    def test_each_personal_property_blocks_trash(self):
+        for field in (
+            "favorite",
+            "stack",
+            "edited",
+            "description",
+            "rating",
+            "locked_metadata",
+            "shared",
+            "memory",
+            "custom_metadata",
+            "sidecar",
+            "file_reference",
+            "external",
+            "offline",
+        ):
+            with self.subTest(field=field):
+                state = copy.deepcopy(self.state)
+                state[VIDEO][field] = True
+                with self.assertRaises(ValueError):
+                    Validator(state, self.paths).verify(self.row)
+
+    def test_albums_tags_and_favorite_already_on_photo_are_preserved(self):
+        for row in (self.state[PHOTO], self.state[VIDEO]):
+            row.update(albums=["album"], tags=["tag"], favorite=True)
+        Validator(self.state, self.paths).verify(self.row)
+        self.state[VIDEO]["albums"].append("unique")
+        with self.assertRaisesRegex(ValueError, "unique_albums"):
+            Validator(self.state, self.paths).verify(self.row)
+
+    def test_trashed_photo_references_also_protect_video(self):
+        other = {
+            **self.state[PHOTO],
+            "id": OTHER,
+            "linked_video_id": VIDEO,
+            "status": "trashed",
+        }
+        self.state[OTHER] = other
+        with self.assertRaisesRegex(ValueError, "reference_changed"):
+            Validator(self.state, self.paths).verify(self.row)
+
+    def test_changed_video_photo_and_companion_bytes_are_rejected(self):
+        for identifier in (VIDEO, PHOTO, RETAINED):
+            with self.subTest(identifier=identifier):
+                path = Path(self.state[identifier]["path"])
+                original = path.read_bytes()
+                path.write_bytes(b"changed" + original)
+                with self.assertRaises(ValueError):
+                    Validator(self.state, self.paths).verify(self.row)
+                path.write_bytes(original)
+
+    def test_other_owner_and_changed_link_are_rejected(self):
+        for field, value in (
+            ("owner_id", OTHER),
+            ("visibility", "locked"),
+            ("status", "trashed"),
+        ):
+            with self.subTest(field=field):
+                state = copy.deepcopy(self.state)
+                state[PHOTO][field] = value
+                with self.assertRaises(ValueError):
+                    Validator(state, self.paths).verify(self.row)
+        self.state[PHOTO]["linked_video_id"] = None
+        with self.assertRaises(ValueError):
+            Validator(self.state, self.paths).verify(self.row)
+
+    def test_alias_of_an_unrelated_original_is_protected(self):
+        alias = self.library / "alias.mp4"
+        os.link(self.state[VIDEO]["path"], alias)
+        self.state[OTHER] = {**self.state[VIDEO], "id": OTHER, "path": str(alias)}
+        with self.assertRaisesRegex(ValueError, "shared_original_inode"):
+            Validator(self.state, self.paths).verify(self.row)
+
+    def test_plan_excludes_stream_only_or_missing_proofs(self):
+        result = make_plan({VIDEO: []}, self.state, self.paths)
+        self.assertEqual(result["eligible"], [])
+        self.assertEqual(result["excluded"][0]["reasons"], ["no_full_file_proof"])
+
+    def test_only_current_owner_is_executed_and_restore_is_idempotent(self):
+        self.plan["eligible"].append({**self.row, "owner_id": OTHER, "video_id": OTHER})
+        self.assertEqual(self.execute(), {"trashed": 1})
+        self.execute()
+        self.api.trash.assert_called_once_with([VIDEO])
+        self.assertEqual(self.execute(restore=True), {"restored": 1})
+        self.execute(restore=True)
+        self.api.restore.assert_called_once_with([VIDEO])
+        self.assertEqual(Path(self.state[VIDEO]["path"]).read_bytes(), b"videotrailer")
+
+    def test_changed_property_is_skipped_without_write(self):
+        self.state[VIDEO]["description"] = True
+        self.assertEqual(self.execute(), {"skipped": 1})
+        self.api.trash.assert_not_called()
+
+    def test_api_ownership_mismatch_blocks_entire_batch(self):
+        self.api.get_asset.side_effect = lambda _: {"ownerId": OTHER}
+        with self.assertRaises(ValueError):
+            self.execute()
+        self.api.trash.assert_not_called()
+
+    def test_new_album_during_api_reads_blocks_write(self):
+        def read(identifier):
+            self.state[VIDEO]["albums"] = ["new-album"]
+            return self.api_asset(identifier)
+
+        self.api.get_asset.side_effect = read
+        with self.assertRaisesRegex(ValueError, "changed during preflight"):
+            self.execute()
+        self.api.trash.assert_not_called()
+
+    def test_pending_is_durable_and_timeout_is_not_blindly_replayed(self):
+        def timeout(ids):
+            self.assertEqual(self.journal.statuses()[VIDEO], "trash_pending")
+            self.change_status(ids, "trashed")
+            raise ApiError("timeout")
+
+        self.api.trash.side_effect = timeout
+        with self.assertRaises(ApiError):
+            self.execute()
+        self.assertEqual(self.execute(), {"trashed": 1})
+        self.api.trash.assert_called_once()
+
+    def test_unresolved_pending_never_retries_a_write(self):
+        self.journal.record("trash_pending", [VIDEO])
+        with self.assertRaisesRegex(ValueError, "unresolved pending"):
+            self.execute()
+        self.api.trash.assert_not_called()
+
+    def test_failed_postcheck_leaves_pending_for_recovery(self):
+        self.api.trash.side_effect = None
+        with self.assertRaisesRegex(ValueError, "outcome unconfirmed"):
+            self.execute()
+        self.assertEqual(self.journal.statuses(), {VIDEO: "trash_pending"})
+
+    def test_restore_never_uses_global_trash(self):
+        self.execute()
+        self.api.reset_mock()
+        self.execute(restore=True)
+        self.api.trash.assert_not_called()
+        self.api.restore.assert_called_once_with([VIDEO])
+
+    def test_journal_refuses_changed_header_and_concurrent_execution(self):
+        with self.assertRaises(OSError):
+            Journal(self.root / "journal.jsonl", {"schema": 1})
+        other = Journal(self.root / "other.jsonl", {"schema": 1})
+        other.close()
+        with self.assertRaises(ValueError):
+            Journal(self.root / "other.jsonl", {"schema": 2})
+
+    def test_evidence_cannot_escape_the_run_directory(self):
+        run = self.root / "run"
+        run.mkdir()
+        (run / "summary.json").write_text(
+            json.dumps(
+                {
+                    "proposals": [
+                        {
+                            "video_id": VIDEO,
+                            "action": "propose_trash",
+                            "reports": ["../journal.jsonl"],
+                        }
+                    ]
+                }
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            evidence_from_run(run)
+
+    def add_sidecar(self):
+        path = self.library / "sample.mp4.xmp"
+        path.write_bytes(b"synthetic sidecar metadata")
+        self.state[VIDEO].update(sidecar=True, sidecar_paths=[str(path)])
+        return path
+
+    def test_sidecars_need_opt_in_and_are_hashed_in_plan(self):
+        self.add_sidecar()
+        with self.assertRaisesRegex(ValueError, "protected_sidecar"):
+            Validator(self.state, self.paths).verify(self.row)
+        row = Validator(self.state, self.paths).verify(self.row, preserve_sidecars=True)
+        self.assertEqual(len(row["sidecars"]), 1)
+        self.plan["eligible"] = [row]
+        self.execute()
+        backup = self.root / "sidecar-backups" / (row["sidecars"][0]["sha256"] + ".bin")
+        self.assertEqual(backup.read_bytes(), b"synthetic sidecar metadata")
+
+    def test_changed_sidecar_blocks_trash(self):
+        path = self.add_sidecar()
+        row = Validator(self.state, self.paths).verify(self.row, preserve_sidecars=True)
+        path.write_bytes(b"new information")
+        self.plan["eligible"] = [row]
+        self.execute()
+        self.api.trash.assert_not_called()
+
+    def test_corrupt_backup_is_never_overwritten(self):
+        self.add_sidecar()
+        row = Validator(self.state, self.paths).verify(self.row, preserve_sidecars=True)
+        directory = self.root / "sidecar-backups"
+        backup_sidecars([row], self.paths, directory)
+        target = directory / (row["sidecars"][0]["sha256"] + ".bin")
+        target.write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "verification failed"):
+            backup_sidecars([row], self.paths, directory)
+        self.assertEqual(target.read_bytes(), b"corrupt")
+
+    def test_memory_membership_must_already_exist_on_photo(self):
+        self.state[VIDEO].update(memory=True, memories=["memory"])
+        with self.assertRaisesRegex(ValueError, "unique_memories"):
+            Validator(self.state, self.paths).verify(self.row)
+        self.state[PHOTO]["memories"] = ["memory"]
+        Validator(self.state, self.paths).verify(self.row)
+
+
+class SidecarTests(unittest.TestCase):
+    def test_xml_formatting_normalizes_but_values_do_not(self):
+        first = xml_fingerprint(b'<x b="2" a="1"><date>2020</date></x>')
+        self.assertEqual(
+            first, xml_fingerprint(b'<x a="1" b="2">\n <date>2020</date>\n</x>')
+        )
+        self.assertNotEqual(
+            first, xml_fingerprint(b'<x a="1" b="2"><date>2021</date></x>')
+        )
+
+    def test_entities_and_non_xml_are_not_interpreted(self):
+        self.assertIsNone(
+            xml_fingerprint(b'<!DOCTYPE x [<!ENTITY name "value">]><x>&name;</x>')
+        )
+        self.assertIsNone(xml_fingerprint("<!DOCTYPE x><x/>".encode("utf-16")))
+        self.assertIsNone(xml_fingerprint(b"not xml"))
+
+    def test_sidecar_comparison_reports_missing_and_different_peers(self):
+        video = [{"sha256": "a", "xml_sha256": "xml-a"}]
+        self.assertEqual(compare(video, []), "photo_sidecar_missing")
+        self.assertEqual(compare(video, video), "byte_identical")
+        self.assertEqual(
+            compare(video, [{"sha256": "b", "xml_sha256": "xml-a"}]), "xml_identical"
+        )
+        self.assertEqual(
+            compare(video, [{"sha256": "b", "xml_sha256": "xml-b"}]),
+            "different_preserved_in_backup",
+        )
+
+
+class ApiTests(unittest.TestCase):
+    def test_https_only_except_loopback_and_no_url_credentials(self):
+        for url in (
+            "http://server/api",
+            "https://user:pass@server/api",
+            "https://server/api?q=x",
+            "https://server/not-api",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                ImmichAPI(url, "secret")
+        ImmichAPI("http://127.0.0.1:2283/api", "secret")
+
+    def test_trash_always_passes_force_false_and_restore_is_scoped(self):
+        api = ImmichAPI("https://example.test/api", "secret")
+        api.request = Mock()
+        api.trash([VIDEO])
+        api.request.assert_called_once_with(
+            "DELETE", "/assets", {"ids": [VIDEO], "force": False}
+        )
+        api.restore([VIDEO])
+        api.request.assert_called_with(
+            "POST", "/trash/restore/assets", {"ids": [VIDEO]}
+        )
+
+    def test_disabled_or_short_trash_retention_blocks_writes(self):
+        api = ImmichAPI("https://example.test/api", "secret")
+        for trash in (
+            {"enabled": False, "days": 30},
+            {"enabled": True, "days": 0},
+            {"enabled": True, "days": 6},
+        ):
+            api.request = Mock(
+                side_effect=[{"id": OWNER}, {"permissions": ["all"]}, {"trash": trash}]
+            )
+            with self.assertRaisesRegex(ApiError, "at least 7 days"):
+                api.preflight(OWNER)
+
+    def test_restore_remains_available_when_retention_is_disabled(self):
+        api = ImmichAPI("https://example.test/api", "secret")
+        api.request = Mock(
+            side_effect=[
+                {"id": OWNER},
+                {"permissions": ["all"]},
+                {"trash": {"enabled": False, "days": 0}},
+            ]
+        )
+        self.assertEqual(api.preflight(OWNER, for_restore=True)["days"], 0)
+
+    def test_wrong_owner_and_insufficient_permissions_are_rejected(self):
+        api = ImmichAPI("https://example.test/api", "secret")
+        api.request = Mock(return_value={"id": OTHER})
+        with self.assertRaisesRegex(ApiError, "different owner"):
+            api.preflight(OWNER)
+        api.request = Mock(side_effect=[{"id": OWNER}, {"permissions": ["asset.read"]}])
+        with self.assertRaisesRegex(ApiError, "requires"):
+            api.preflight(OWNER)
+
+    def test_credentials_are_not_forwarded_by_redirects_or_error_logs(self):
+        self.assertIsNone(
+            NoRedirect().redirect_request(
+                None, None, 302, None, None, "https://evil.test"
+            )
+        )
+        api = ImmichAPI("https://example.test/api", "secret")
+        api.opener.open = Mock(
+            side_effect=urllib.error.HTTPError(api.url, 302, "secret", {}, None)
+        )
+        with self.assertRaises(ApiError) as error:
+            api.get_asset(VIDEO)
+        self.assertNotIn("secret", str(error.exception))
+
+    def test_key_file_rejects_broad_permissions_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "key"
+            path.write_text("synthetic-key")
+            path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                read_key(path)
+            path.chmod(0o600)
+            self.assertEqual(read_key(path), "synthetic-key")
+            link = Path(directory) / "link"
+            link.symlink_to(path)
+            with self.assertRaises(OSError):
+                read_key(link)
+
+    def test_untrusted_asset_ids_cannot_change_request_path(self):
+        api = ImmichAPI("https://example.test/api", "secret")
+        with self.assertRaises(ValueError):
+            api.get_asset("../trash/empty")
+
+    def test_http_timeout_is_never_automatically_retried(self):
+        api = ImmichAPI("https://example.test/api", "secret")
+        with patch.object(api.opener, "open", side_effect=TimeoutError) as request:
+            with self.assertRaises(ApiError):
+                api.trash([VIDEO])
+            request.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

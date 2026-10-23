@@ -95,10 +95,10 @@ def serialize_inventory(assets):
     )
 
 
-def database_inventory(container):
+def database_query(container, filename):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
         raise ValueError("invalid database container name")
-    sql = Path(__file__).with_name("inventory.sql").read_text()
+    sql = Path(__file__).with_name(filename).read_text()
     result = subprocess.run(
         [
             "docker",
@@ -117,7 +117,11 @@ def database_inventory(container):
         timeout=120,
         check=True,
     )
-    return read_inventory(result.stdout.splitlines())
+    return result.stdout.splitlines()
+
+
+def database_inventory(container):
+    return read_inventory(database_query(container, "inventory.sql"))
 
 
 def filesystem_inventory(root):

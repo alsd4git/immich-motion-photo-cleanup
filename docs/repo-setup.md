@@ -7,8 +7,8 @@ This file records desired settings for `alsd4git/motion-photo-audit`. **It does 
 - Integration branch: `main`.
 - Squash merge: enabled.
 - Merge commits and rebase merging: **also enabled**, unlike the preferred configuration in comparable personal repositories.
-- No GitHub rulesets were returned by the current repository query. This alone does not establish whether separate branch protection rules exist.
-- Auto-deletion of merged branches and required-check enforcement were not confirmed in this review.
+- No repository rulesets were returned. The separate branch-protection endpoint reports that `main` is not protected, so required PR/check enforcement is not currently configured there.
+- Automatic deletion of merged PR branches: disabled.
 
 ## Desired merge settings
 

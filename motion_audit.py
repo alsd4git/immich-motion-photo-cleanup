@@ -554,6 +554,7 @@ def main(argv=None):
         paths.check_output(args.output)
         check_private_output(args.output)
         paths.check_output(args.temp_dir)
+        check_private_output(args.temp_dir)
         if not args.temp_dir.is_dir():
             raise ValueError("--temp-dir must be an existing directory")
         if args.output.exists():

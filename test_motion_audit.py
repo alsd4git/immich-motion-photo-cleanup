@@ -256,6 +256,21 @@ class PrivateOutputTests(unittest.TestCase):
             analyze.assert_not_called()
             self.assertFalse(output.exists())
 
+    def test_direct_audit_rejects_checkout_temp_directory_before_reading_media(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "report"
+            with mock.patch(
+                "motion_audit.shutil.which", return_value="synthetic-tool"
+            ), mock.patch("motion_audit.audit") as analyze:
+                result = main([
+                    "--root", str(root), "--output", str(output),
+                    "--temp-dir", str(Path(__file__).resolve().parent),
+                ])
+            self.assertEqual(result, 2)
+            analyze.assert_not_called()
+            self.assertFalse(output.exists())
+
 
 @unittest.skipUnless(
     all(shutil.which(command) for command in ("ffmpeg", "ffprobe", "exiftool")),

@@ -167,6 +167,8 @@ def run(args, run_batch=audit_main):
     )
     paths.check_output(root)
     check_private_output(root)
+    paths.check_output(args.temp_dir)
+    check_private_output(args.temp_dir)
     config = {
         "roots": [
             str(path.resolve())

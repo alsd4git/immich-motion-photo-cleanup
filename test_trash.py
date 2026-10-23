@@ -402,6 +402,21 @@ class TrashTests(unittest.TestCase):
         Validator(self.state, self.paths).verify(self.row)
 
 
+class ClipSizePropagationTests(unittest.TestCase):
+    def test_validator_passes_configured_limit_to_media_reader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = LibraryPaths([Path(directory)], [])
+            validator = Validator({}, paths, max_clip_mib=512)
+            self.assertEqual(validator.max_clip_bytes, 512 * 1024**2)
+
+    def test_invalid_limits_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = LibraryPaths([Path(directory)], [])
+            for value in (0, -1, None, True, "512"):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    Validator({}, paths, max_clip_mib=value)
+
+
 class SidecarTests(unittest.TestCase):
     def test_xml_formatting_normalizes_but_values_do_not(self):
         first = xml_fingerprint(b'<x b="2" a="1"><date>2020</date></x>')

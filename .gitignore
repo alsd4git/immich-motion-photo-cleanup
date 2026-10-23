@@ -6,3 +6,12 @@ inventory.jsonl
 .venv/
 /reports/
 /runs/
+plan.json
+summary.json
+progress.json
+journal.jsonl
+execution*.jsonl
+sidecar-backups/
+.env
+.env.*
+*.key

@@ -9,7 +9,7 @@ Google Takeout and other exports may include both a JPEG/HEIC Motion Photo and a
 
 ## Quick start: audit only
 
-Requirements: Python 3.10+, [ExifTool](https://exiftool.org/), `ffprobe` (FFmpeg). Run where you can read the Immich originals and have access to its PostgreSQL Docker container. The Python tool itself has **no third-party package dependencies**.
+Requirements: Python 3.10+ on a POSIX system such as Linux or macOS, [ExifTool](https://exiftool.org/), `ffprobe` (FFmpeg). Run where you can read the Immich originals and have access to its PostgreSQL Docker container. The Python tool itself has **no third-party package dependencies**.
 
 ```sh
 git clone https://github.com/alsd4git/motion-photo-audit.git

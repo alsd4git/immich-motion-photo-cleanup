@@ -12,7 +12,7 @@ the original files. The database mode additionally requires Docker access.
 
 ## Audit an Immich library
 
-Run from this directory on the host. Use the server's actual volume mapping.
+Run from the repository root on the host, not from `docs/`. Use the server's actual volume mapping.
 For example, if `/data` in the container maps to `/srv/immich` on the host:
 
 ```sh
@@ -202,6 +202,15 @@ The command writes `plan.json` in a new private directory and prints its SHA-256
 Review its `eligible`, `excluded` and `exclusion_reasons` entries. A plan is not
 an execution instruction on its own.
 
+New plans use schema 2 and record the completed audit's `max_clip_mib` limit.
+That same limit is used during planning and immediately before execution.
+Legacy schema-1 plans without this field retain their historical 256 MiB
+limit; an explicitly invalid limit is never replaced with a default.
+Planning requires a completed audit with a valid recorded configuration.
+
+Plan output is human-readable by default. Add `--json` for a single structured
+summary containing counts, owner scope, exclusions and the saved plan's SHA-256.
+
 Only a **full standalone-file containment proof** qualifies for execution.
 Packet matches, filename matches, dates, content identifiers and link proposals
 never qualify. Planning rehashes the whole standalone video and its exact range
@@ -295,6 +304,10 @@ python3 trash.py trash \
   --journal /absolute/private/path/trash-plan/execution.jsonl
 ```
 
+Add `--json` for structured preview output. This dry run reports candidates
+from the saved plan; it does not revalidate current media bytes or asset
+associations. Those checks run before each actual trash request.
+
 After review, repeat it with `--execute --plan-sha256 REVIEWED_SHA256`.
 The default processes one batch of 25 videos. Inspect the timeline, trash and
 journal before continuing. Repeat with the same journal to continue, or add
@@ -314,6 +327,9 @@ It does not automatically retry write requests. After an interrupted request,
 resume can confirm an already completed action; an uncertain outcome stops the
 run for manual inspection. Do not edit the journal or run it concurrently.
 Changes to the plan, API URL, owner or tool source invalidate journal reuse.
+Keep the original frozen script revision together with each plan and journal
+for recovery. Reading an older plan format does not bypass the journal's
+source-digest check, and upgrading scripts does not migrate an existing journal.
 
 ### Restore this tool's actions
 
@@ -352,7 +368,7 @@ jq '.rows[] | select(.action == "review")' /tmp/motion-audit-batch-000/report.js
 ## Validation
 
 ```sh
-uv run --no-project --python 3.11 -m unittest discover -s . -p 'test_*.py' -v
+uv run --no-project --python 3.11 python -m unittest discover -s . -p 'test_*.py' -v
 ```
 
 Tests cover owner isolation, protected companions, ambiguous links across

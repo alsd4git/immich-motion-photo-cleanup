@@ -1,6 +1,6 @@
 # Repository workflow and GitHub setup
 
-This file records desired settings for `alsd4git/motion-photo-audit`. **It does not configure GitHub** and must not be treated as proof that protections are active. The day-to-day agent rules are tracked in [issue #6](https://github.com/alsd4git/motion-photo-audit/issues/6) and will live in `AGENTS.md` once integrated.
+This file records desired settings for `alsd4git/motion-photo-audit`. **It does not configure GitHub** and must not be treated as proof that protections are active. The day-to-day agent rules are tracked in [issue #6](https://github.com/alsd4git/motion-photo-audit/issues/6).
 
 ## Observed settings (2026-10-24)
 

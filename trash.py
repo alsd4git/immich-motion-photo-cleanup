@@ -304,6 +304,7 @@ def plan_summary(plan, digest=None):
         "Immich Motion Photo cleanup plan (no changes applied)",
         f"Eligible standalone videos: {len(eligible)}",
         f"Excluded candidates: {len(excluded)}",
+        f"Owner scope: {len(plan.get('owners', {}))} account(s); details in the private plan",
         f"Potential space after Immich trash retention: {human_size(plan['eligible_bytes'])}",
     ]
     reasons = sorted(plan["exclusion_reasons"].items(), key=lambda item: (-item[1], item[0]))
@@ -319,10 +320,12 @@ def plan_summary(plan, digest=None):
 def preflight_summary(data):
     return "\n".join([
         "Immich Motion Photo cleanup preflight (DRY RUN; no changes applied)",
-        f"Eligible videos for this owner: {data['owner_candidates']}",
+        f"Operation: {data.get('operation', 'trash')}",
+        f"Candidates in the plan for this owner: {data['owner_candidates']}",
         f"Trash retention: {data['retention_days']} days",
         f"Reviewed plan SHA256: {data['plan_sha256']}",
         "No API write was attempted. Moving assets to trash does not immediately reclaim disk space.",
+        "This preview does not revalidate current media bytes or asset associations.",
     ])
 
 
@@ -346,6 +349,9 @@ def main(argv=None):
     parser.add_argument("--url", help="Immich API URL ending in /api")
     parser.add_argument("--api-key-file", type=Path)
     parser.add_argument("--journal", type=Path)
+    parser.add_argument(
+        "--json", action="store_true", help="print structured plan or dry-run summaries"
+    )
     parser.add_argument(
         "--plan-sha256", help="reviewed plan digest, required for writes"
     )
@@ -429,6 +435,7 @@ def main(argv=None):
         if not args.execute:
             preview = {
                 "dry_run": True,
+                "operation": args.operation,
                 "plan_sha256": digest,
                 "retention_days": retention["days"],
                 "owner_candidates": sum(

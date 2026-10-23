@@ -526,8 +526,82 @@ class PlanCLITests(unittest.TestCase):
                 state.assert_not_called()
                 self.assertFalse(self.output.exists())
 
+    def test_plan_cli_json_is_parseable_and_matches_the_saved_plan(self):
+        (self.run / "progress.json").write_text(json.dumps(self.progress))
+        output = io.StringIO()
+        with patch("trash.current_state", return_value={}), contextlib.redirect_stdout(output):
+            result = main(self.arguments() + ["--json"])
+        self.assertEqual(result, 0)
+        summary = json.loads(output.getvalue())
+        data = (self.output / "plan.json").read_bytes()
+        self.assertEqual(summary["plan_sha256"], hashlib.sha256(data).hexdigest())
+        self.assertEqual(summary["eligible"], 0)
+        self.assertEqual(summary["bytes"], 0)
+
+
+class DryRunCLITests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.library = self.root / "library"
+        self.library.mkdir()
+        self.plan = self.root / "plan.json"
+        self.plan.write_text(json.dumps({
+            "schema": 1, "max_clip_mib": 512,
+            "eligible": [{"owner_id": OWNER}, {"owner_id": OTHER}],
+        }))
+        self.key = self.root / "key"
+        self.key.write_text("synthetic-test-key")
+        self.key.chmod(0o600)
+        self.journal = self.root / "execution.jsonl"
+
+    def arguments(self, operation):
+        return [
+            operation, "--plan", str(self.plan), "--owner", OWNER,
+            "--url", "https://example.invalid/api", "--api-key-file", str(self.key),
+            "--journal", str(self.journal), "--library-root", str(self.library),
+            "--immich-db-container", "synthetic",
+        ]
+
+    def test_human_and_json_previews_never_write_or_query_asset_state(self):
+        for operation in ("trash", "restore"):
+            for use_json in (False, True):
+                with self.subTest(operation=operation, json=use_json):
+                    output = io.StringIO()
+                    with patch("trash.ImmichAPI") as api, patch("trash.current_state") as state, contextlib.redirect_stdout(output):
+                        api.return_value.preflight.return_value = {"enabled": True, "days": 30}
+                        args = self.arguments(operation) + (["--json"] if use_json else [])
+                        self.assertEqual(main(args), 0)
+                    api.return_value.trash.assert_not_called()
+                    api.return_value.restore.assert_not_called()
+                    state.assert_not_called()
+                    self.assertFalse(self.journal.exists())
+                    if use_json:
+                        summary = json.loads(output.getvalue())
+                        self.assertTrue(summary["dry_run"])
+                        self.assertEqual(summary["operation"], operation)
+                        self.assertEqual(summary["owner_candidates"], 1)
+                    else:
+                        self.assertIn("DRY RUN", output.getvalue())
+                        self.assertIn(f"Operation: {operation}", output.getvalue())
+
+    def test_json_does_not_bypass_the_execute_hash_guard(self):
+        with patch("trash.ImmichAPI") as api, contextlib.redirect_stderr(io.StringIO()):
+            api.return_value.preflight.return_value = {"enabled": True, "days": 30}
+            self.assertEqual(main(self.arguments("trash") + ["--execute", "--json"]), 2)
+        api.return_value.trash.assert_not_called()
+        self.assertFalse(self.journal.exists())
+
 
 class SummaryTests(unittest.TestCase):
+    def test_fractional_units_and_invalid_sizes(self):
+        self.assertEqual(human_size(1536 * 1024), "1.50 MiB")
+        self.assertEqual(human_size(3 * 1024**3 // 2), "1.50 GiB")
+        for value in (-1, True, 1.5):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                human_size(value)
+
     def test_plan_summary(self):
         plan = {
             "eligible": [{"video_id": "a"}],

@@ -17,7 +17,15 @@ from immich_api import ApiError, ImmichAPI, NoRedirect, read_key
 from inventory import LibraryPaths, database_query
 from media import MediaReader
 from sidecars import compare, xml_fingerprint
-from trash import Journal, backup_sidecars, main, process
+from trash import (
+    Journal,
+    backup_sidecars,
+    human_size,
+    main,
+    plan_summary,
+    preflight_summary,
+    process,
+)
 from trash_plan import (
     Validator,
     evidence_from_run,
@@ -517,6 +525,31 @@ class PlanCLITests(unittest.TestCase):
                 self.assertEqual(result, 2)
                 state.assert_not_called()
                 self.assertFalse(self.output.exists())
+
+
+class SummaryTests(unittest.TestCase):
+    def test_plan_summary(self):
+        plan = {
+            "eligible": [{"video_id": "a"}],
+            "excluded": [{"video_id": "b"}, {"video_id": "c"}],
+            "eligible_bytes": 2 * 1024**3,
+            "exclusion_reasons": {"protected_album": 2, "shared": 1},
+        }
+        output = plan_summary(plan, "abc123")
+        self.assertIn("2.00 GiB", output)
+        self.assertIn("Excluded candidates: 2", output)
+        self.assertIn("protected_album: 2", output)
+        self.assertIn("Plan SHA256: abc123", output)
+        self.assertIn("\\n", output)
+
+    def test_empty_plan_and_preflight(self):
+        plan = {"eligible": [], "excluded": [], "eligible_bytes": 0, "exclusion_reasons": {}}
+        self.assertIn("0.00 MiB", plan_summary(plan))
+        self.assertIn("DRY RUN", preflight_summary({
+            "owner_candidates": 0, "retention_days": 30, "plan_sha256": "abc",
+        }))
+        with self.assertRaises(ValueError):
+            human_size(-1)
 
 
 class SidecarTests(unittest.TestCase):

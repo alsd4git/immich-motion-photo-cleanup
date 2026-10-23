@@ -356,6 +356,10 @@ retention guards, interrupted requests, scoped restore and credential handling.
 - [immich-go PR #1143](https://github.com/simulot/immich-go/pull/1143)
   proposes an import-time filename/size heuristic. This tool instead checks
   content in an already imported library. Its work does not replace import fixes.
+- [immich-go issue #913](https://github.com/simulot/immich-go/issues/913)
+  discusses motion companions appearing in albums and linking/job timing.
+- [immich-go issue #1326](https://github.com/simulot/immich-go/issues/1326)
+  covers Pixel `.MP.jpg` exports and skipped-file reporting.
 - [immich-motion-deduplicator](https://github.com/itsWavs/immich-motion-deduplicator)
   addresses existing-library cleanup. Its filename-based candidate scan is not
   a full embedded-byte proof. Do not treat a shared stem as deletion evidence.

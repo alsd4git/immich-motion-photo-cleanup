@@ -289,6 +289,43 @@ def code_digest():
     return digest.hexdigest()
 
 
+def human_size(value):
+    if type(value) is not int or value < 0:
+        raise ValueError("invalid size in plan")
+    unit = "GiB" if value >= 1024**3 else "MiB"
+    divisor = 1024**3 if unit == "GiB" else 1024**2
+    return f"{value / divisor:.2f} {unit}"
+
+
+def plan_summary(plan, digest=None):
+    eligible = plan["eligible"]
+    excluded = plan["excluded"]
+    lines = [
+        "Immich Motion Photo cleanup plan (no changes applied)",
+        f"Eligible standalone videos: {len(eligible)}",
+        f"Excluded candidates: {len(excluded)}",
+        f"Potential space after Immich trash retention: {human_size(plan['eligible_bytes'])}",
+    ]
+    reasons = sorted(plan["exclusion_reasons"].items(), key=lambda item: (-item[1], item[0]))
+    if reasons:
+        lines.append("Top exclusion reasons:")
+        lines.extend(f"  {reason}: {count}" for reason, count in reasons[:5])
+    if digest:
+        lines.append(f"Plan SHA256: {digest}")
+    lines.append("No files were deleted. Independently review the plan and maintain backups.")
+    return "\\n".join(lines)
+
+
+def preflight_summary(data):
+    return "\\n".join([
+        "Immich Motion Photo cleanup preflight (DRY RUN; no changes applied)",
+        f"Eligible videos for this owner: {data['owner_candidates']}",
+        f"Trash retention: {data['retention_days']} days",
+        f"Reviewed plan SHA256: {data['plan_sha256']}",
+        "No API write was attempted. Moving assets to trash does not immediately reclaim disk space.",
+    ])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("plan", "trash", "restore"))
@@ -358,22 +395,19 @@ def main(argv=None):
             result["created_at"] = now()
             args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
             atomic_json(args.output / "plan.json", result)
-            print(
-                json.dumps(
-                    {
-                        "eligible": len(result["eligible"]),
-                        "excluded": len(result["excluded"]),
-                        "bytes": result["eligible_bytes"],
-                        "owners": result["owners"],
-                        "exclusion_reasons": result["exclusion_reasons"],
-                        "sidecar_comparisons": result["sidecar_comparisons"],
-                    }
-                )
-            )
-            print(
-                "Plan SHA256: "
-                + hashlib.sha256((args.output / "plan.json").read_bytes()).hexdigest()
-            )
+            digest = hashlib.sha256((args.output / "plan.json").read_bytes()).hexdigest()
+            if args.json:
+                print(json.dumps({
+                    "eligible": len(result["eligible"]),
+                    "excluded": len(result["excluded"]),
+                    "bytes": result["eligible_bytes"],
+                    "owners": result["owners"],
+                    "exclusion_reasons": result["exclusion_reasons"],
+                    "sidecar_comparisons": result["sidecar_comparisons"],
+                    "plan_sha256": digest,
+                }))
+            else:
+                print(plan_summary(result, digest))
             return 0
         if not all((args.plan, args.owner, args.url, args.api_key_file, args.journal)):
             raise ValueError(
@@ -393,18 +427,15 @@ def main(argv=None):
         api = ImmichAPI(args.url, read_key(args.api_key_file))
         retention = api.preflight(args.owner, for_restore=args.operation == "restore")
         if not args.execute:
-            print(
-                json.dumps(
-                    {
-                        "dry_run": True,
-                        "plan_sha256": digest,
-                        "retention_days": retention["days"],
-                        "owner_candidates": sum(
-                            r["owner_id"] == args.owner for r in plan["eligible"]
-                        ),
-                    }
-                )
-            )
+            preview = {
+                "dry_run": True,
+                "plan_sha256": digest,
+                "retention_days": retention["days"],
+                "owner_candidates": sum(
+                    r["owner_id"] == args.owner for r in plan["eligible"]
+                ),
+            }
+            print(json.dumps(preview) if args.json else preflight_summary(preview))
             return 0
         if digest != args.plan_sha256:
             raise ValueError("--plan-sha256 must match the reviewed plan")

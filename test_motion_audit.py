@@ -10,7 +10,13 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from inventory import Asset, LibraryPaths, check_private_output, filesystem_inventory, read_inventory
+from inventory import (
+    Asset,
+    LibraryPaths,
+    check_private_output,
+    filesystem_inventory,
+    read_inventory,
+)
 from media import Fingerprint, MediaError, MediaReader, PhotoInfo
 from motion_audit import audit, main
 
@@ -228,10 +234,6 @@ class InputTests(unittest.TestCase):
             MediaReader._range(metadata, 200)
 
 
-@unittest.skipUnless(
-    all(shutil.which(command) for command in ("ffmpeg", "ffprobe", "exiftool")),
-    "integration test requires ffmpeg, ffprobe and exiftool",
-)
 class PrivateOutputTests(unittest.TestCase):
     def test_repo_checkout_rejected(self):
         with self.assertRaisesRegex(ValueError, "outside the Git checkout"):
@@ -241,7 +243,24 @@ class PrivateOutputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             check_private_output(Path(directory) / "audit-run")
 
+    def test_direct_audit_rejects_checkout_before_reading_media(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(__file__).resolve().parent / "private-output-regression"
+            with mock.patch(
+                "motion_audit.shutil.which", return_value="synthetic-tool"
+            ), mock.patch("motion_audit.audit") as analyze:
+                result = main(
+                    ["--root", directory, "--output", str(output)]
+                )
+            self.assertEqual(result, 2)
+            analyze.assert_not_called()
+            self.assertFalse(output.exists())
 
+
+@unittest.skipUnless(
+    all(shutil.which(command) for command in ("ffmpeg", "ffprobe", "exiftool")),
+    "integration test requires ffmpeg, ffprobe and exiftool",
+)
 class RealMediaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

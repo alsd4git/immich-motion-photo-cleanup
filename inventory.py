@@ -224,6 +224,7 @@ class LibraryPaths:
                 "output and temporary directories must be outside the library"
             )
 
+
 def check_private_output(path):
     """Keep sensitive audit artefacts out of the checked-out source tree."""
     resolved = Path(path).resolve()

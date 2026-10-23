@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from inventory import Asset, LibraryPaths, filesystem_inventory, read_inventory
+from inventory import Asset, LibraryPaths, check_private_output, filesystem_inventory, read_inventory
 from media import Fingerprint, MediaError, MediaReader, PhotoInfo
 from motion_audit import audit, main
 
@@ -232,6 +232,16 @@ class InputTests(unittest.TestCase):
     all(shutil.which(command) for command in ("ffmpeg", "ffprobe", "exiftool")),
     "integration test requires ffmpeg, ffprobe and exiftool",
 )
+class PrivateOutputTests(unittest.TestCase):
+    def test_repo_checkout_rejected(self):
+        with self.assertRaisesRegex(ValueError, "outside the Git checkout"):
+            check_private_output(Path(__file__).resolve().parent / "reports" / "user-data")
+
+    def test_external_private_directory_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            check_private_output(Path(directory) / "audit-run")
+
+
 class RealMediaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

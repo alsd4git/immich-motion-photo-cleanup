@@ -22,6 +22,7 @@ from trash_plan import (
     current_state,
     evidence_from_run,
     make_plan,
+    plan_clip_limit,
     validate_clip_limit,
 )
 
@@ -148,7 +149,7 @@ def process(
     max_batches=1,
     restore=False,
 ):
-    limit = validate_clip_limit(plan.get("max_clip_mib"))
+    limit = plan_clip_limit(plan)
     items = [r for r in plan["eligible"] if r["owner_id"] == owner]
     if len({r["video_id"] for r in items}) != len(items):
         raise ValueError("plan contains duplicate video IDs")
@@ -388,9 +389,7 @@ def main(argv=None):
         data = args.plan.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         plan = json.loads(data)
-        if plan.get("schema") != 1:
-            raise ValueError("unsupported plan schema")
-        validate_clip_limit(plan.get("max_clip_mib"))
+        plan_clip_limit(plan)
         api = ImmichAPI(args.url, read_key(args.api_key_file))
         retention = api.preflight(args.owner, for_restore=args.operation == "restore")
         if not args.execute:

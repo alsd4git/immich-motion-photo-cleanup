@@ -18,7 +18,13 @@ from inventory import LibraryPaths, database_query
 from media import MediaReader
 from sidecars import compare, xml_fingerprint
 from trash import Journal, backup_sidecars, main, process
-from trash_plan import Validator, evidence_from_run, make_plan, original_inode_index
+from trash_plan import (
+    Validator,
+    evidence_from_run,
+    make_plan,
+    original_inode_index,
+    plan_clip_limit,
+)
 
 OWNER, PHOTO, VIDEO, RETAINED, OTHER = [str(UUID(int=i)) for i in range(1, 6)]
 
@@ -85,7 +91,7 @@ class TrashTests(unittest.TestCase):
             "video_bytes": 12,
             "full_file_offset": 4,
         }
-        self.plan = {"eligible": [self.row], "max_clip_mib": 256}
+        self.plan = {"schema": 2, "eligible": [self.row], "max_clip_mib": 256}
         self.api = Mock()
         self.api.preflight.return_value = {"enabled": True, "days": 30}
         self.api.get_asset.side_effect = self.api_asset
@@ -135,6 +141,14 @@ class TrashTests(unittest.TestCase):
         self.assertEqual(reader.call_count, 2)
         for invocation in reader.call_args_list:
             self.assertEqual(invocation.kwargs["max_clip_bytes"], 512 * 1024**2)
+
+    def test_legacy_plan_retains_its_historical_limit(self):
+        self.plan["schema"] = 1
+        self.plan.pop("max_clip_mib")
+        with patch("trash_plan.MediaReader", wraps=MediaReader) as reader:
+            self.assertEqual(self.execute(), {"trashed": 1})
+        for invocation in reader.call_args_list:
+            self.assertEqual(invocation.kwargs["max_clip_bytes"], 256 * 1024**2)
 
     def test_configured_limit_is_enforced_on_synthetic_containment(self):
         payload = b"v" * (1024**2 + 1)
@@ -430,6 +444,18 @@ class TrashTests(unittest.TestCase):
 
 
 class ClipSizePropagationTests(unittest.TestCase):
+    def test_plan_schemas_distinguish_legacy_and_explicit_limits(self):
+        self.assertEqual(plan_clip_limit({"schema": 1}), 256)
+        for schema in (1, 2):
+            self.assertEqual(plan_clip_limit({"schema": schema, "max_clip_mib": 512}), 512)
+        for plan in (
+            {}, {"schema": True}, {"schema": 3}, {"schema": 2},
+            {"schema": 1, "max_clip_mib": None},
+            {"schema": 2, "max_clip_mib": "512"},
+        ):
+            with self.subTest(plan=plan), self.assertRaises(ValueError):
+                plan_clip_limit(plan)
+
     def test_validator_stores_configured_limit_in_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             paths = LibraryPaths([Path(directory)], [])
@@ -470,6 +496,7 @@ class PlanCLITests(unittest.TestCase):
             result = main(self.arguments())
         self.assertEqual(result, 0)
         plan = json.loads((self.output / "plan.json").read_text())
+        self.assertEqual(plan["schema"], 2)
         self.assertEqual(plan["max_clip_mib"], 512)
 
     def test_plan_cli_rejects_missing_malformed_or_incomplete_audit_limits(self):

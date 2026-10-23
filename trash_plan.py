@@ -119,6 +119,16 @@ def validate_clip_limit(value):
     return value
 
 
+def plan_clip_limit(plan):
+    schema = plan.get("schema")
+    if type(schema) is not int or schema not in (1, 2):
+        raise ValueError("unsupported plan schema")
+    if schema == 1 and "max_clip_mib" not in plan:
+        # Schema 1 historically used an implicit 256 MiB validation limit.
+        return 256
+    return validate_clip_limit(plan.get("max_clip_mib"))
+
+
 class Validator:
     def __init__(self, state, paths, max_clip_mib=256):
         self.max_clip_bytes = validate_clip_limit(max_clip_mib) * 1024**2
@@ -272,7 +282,7 @@ def make_plan(
                 }
             )
     return {
-        "schema": 1,
+        "schema": 2,
         "max_clip_mib": max_clip_mib,
         "read_only": True,
         "eligible": eligible,

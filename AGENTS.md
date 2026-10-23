@@ -8,7 +8,7 @@
 - Pushing and merging require maintainer authorization, which may cover an agreed workflow. Never directly push to `main` unless explicitly authorized; keep authorized direct pushes linear and fast-forward only.
 - Rewriting a published work branch requires approval. Use `--force-with-lease`, never unrestricted force pushes. Never delete unmerged work without permission.
 - PRs target `main`, link their issues, and explain why, what changed, what was tested and any remaining risk. Follow the first automated review when configured; do not request extra manual reviews without authorization.
-- Squash-merge PRs. Verify integration before deleting merged branches. See [docs/repo-setup.md](docs/repo-setup.md) for desired (not necessarily already enforced) GitHub settings.
+- Squash-merge PRs. Verify integration before deleting merged branches. GitHub merge/protection settings are tracked in [issue #8](https://github.com/alsd4git/motion-photo-audit/issues/8) and will be documented in `docs/repo-setup.md` once integrated.
 
 ## Implementation and validation
 

@@ -93,7 +93,9 @@ class Validator:
         for row in state.values():
             self.path_ids[row["path"]].add(row["id"])
             try:
-                stat = paths.resolve(Path(row["path"])).stat()
+                # Index metadata only. Actual media/sidecar opens still resolve
+                # every symlink and enforce the canonical library boundary.
+                stat = paths.mapped(Path(row["path"])).stat()
                 self.inode_ids[(stat.st_dev, stat.st_ino)].add(row["id"])
             except (OSError, ValueError):
                 pass  # Missing/out-of-scope originals cannot alias a readable file.

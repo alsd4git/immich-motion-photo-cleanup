@@ -156,6 +156,7 @@ def filesystem_inventory(root):
 class LibraryPaths:
     def __init__(self, roots, mappings):
         self.roots = [Path(root).resolve(strict=True) for root in roots]
+        self.lexical_roots = [Path(root).absolute() for root in roots]
         self.mappings = []
         for value in mappings:
             source, separator, target = value.partition("=")
@@ -178,11 +179,20 @@ class LibraryPaths:
         if any(not root.is_dir() for root in self.roots):
             raise ValueError("library roots must be directories")
 
-    def resolve(self, path):
+    def mapped(self, path):
+        """Constrain a lexical path for metadata-only stat calls, without opening it."""
+        if not path.is_absolute() or ".." in path.parts:
+            raise ValueError("asset path must be absolute without parent traversal")
         for source, target in self.mappings:
             if path.is_relative_to(source):
                 path = target / path.relative_to(source)
                 break
+        if not any(path.is_relative_to(root) for root in self.roots + self.lexical_roots):
+            raise ValueError("asset path escapes the allowed library roots")
+        return path
+
+    def resolve(self, path):
+        path = self.mapped(path)
         path = path.resolve(strict=True)
         if not any(path.is_relative_to(root) for root in self.roots):
             raise ValueError("asset path escapes the allowed library roots")

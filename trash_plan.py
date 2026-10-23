@@ -113,11 +113,15 @@ def original_inode_index(state, paths):
     return result
 
 
+def validate_clip_limit(value):
+    if type(value) is not int or value <= 0:
+        raise ValueError("audited max clip MiB must be a positive integer")
+    return value
+
+
 class Validator:
     def __init__(self, state, paths, max_clip_mib=256):
-        if type(max_clip_mib) is not int or max_clip_mib <= 0:
-            raise ValueError("invalid audited max clip MiB")
-        self.max_clip_bytes = max_clip_mib * 1024**2
+        self.max_clip_bytes = validate_clip_limit(max_clip_mib) * 1024**2
         self.state = state
         self.paths = paths
         self.references = {
@@ -245,7 +249,9 @@ class Validator:
         return result
 
 
-def make_plan(evidence, state, paths, owner=None, preserve_sidecars=False, max_clip_mib=256):
+def make_plan(
+    evidence, state, paths, owner=None, preserve_sidecars=False, max_clip_mib=256
+):
     validator = Validator(state, paths, max_clip_mib)
     eligible, excluded = [], []
     for video_id, options in sorted(evidence.items()):

@@ -17,7 +17,13 @@ from immich_api import ImmichAPI, read_key
 from inventory import LibraryPaths, asset_id
 from run_batches import atomic_json
 from sidecars import read_sidecar
-from trash_plan import Validator, current_state, evidence_from_run, make_plan
+from trash_plan import (
+    Validator,
+    current_state,
+    evidence_from_run,
+    make_plan,
+    validate_clip_limit,
+)
 
 
 def now():
@@ -142,9 +148,7 @@ def process(
     max_batches=1,
     restore=False,
 ):
-    limit = plan.get("max_clip_mib")
-    if type(limit) is not int or limit <= 0:
-        raise ValueError("plan has no valid audited max clip MiB")
+    limit = validate_clip_limit(plan.get("max_clip_mib"))
     items = [r for r in plan["eligible"] if r["owner_id"] == owner]
     if len({r["video_id"] for r in items}) != len(items):
         raise ValueError("plan contains duplicate video IDs")
@@ -329,11 +333,12 @@ def main(argv=None):
             if args.output.resolve().is_relative_to(Path(__file__).resolve().parent):
                 raise ValueError("private plans must stay outside the Git checkout")
             progress = json.loads((args.run / "progress.json").read_text())
-            if progress.get("status") != "complete":
+            if not isinstance(progress, dict) or progress.get("status") != "complete":
                 raise ValueError("trash planning requires a completed batch audit")
-            max_clip_mib = progress.get("config", {}).get("max_clip_mib")
-            if type(max_clip_mib) is not int or max_clip_mib <= 0:
-                raise ValueError("completed run has no valid max clip MiB configuration")
+            config = progress.get("config")
+            if not isinstance(config, dict):
+                raise ValueError("completed run has no audited configuration")
+            max_clip_mib = validate_clip_limit(config.get("max_clip_mib"))
             evidence = evidence_from_run(args.run)
             selected_ids = {
                 row[key]
@@ -385,8 +390,7 @@ def main(argv=None):
         plan = json.loads(data)
         if plan.get("schema") != 1:
             raise ValueError("unsupported plan schema")
-        if type(plan.get("max_clip_mib")) is not int or plan["max_clip_mib"] <= 0:
-            raise ValueError("invalid max clip MiB in reviewed plan")
+        validate_clip_limit(plan.get("max_clip_mib"))
         api = ImmichAPI(args.url, read_key(args.api_key_file))
         retention = api.preflight(args.owner, for_restore=args.operation == "restore")
         if not args.execute:

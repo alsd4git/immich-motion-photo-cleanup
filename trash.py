@@ -313,11 +313,11 @@ def plan_summary(plan, digest=None):
     if digest:
         lines.append(f"Plan SHA256: {digest}")
     lines.append("No files were deleted. Independently review the plan and maintain backups.")
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def preflight_summary(data):
-    return "\\n".join([
+    return "\n".join([
         "Immich Motion Photo cleanup preflight (DRY RUN; no changes applied)",
         f"Eligible videos for this owner: {data['owner_candidates']}",
         f"Trash retention: {data['retention_days']} days",

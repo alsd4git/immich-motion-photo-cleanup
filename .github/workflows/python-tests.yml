@@ -16,7 +16,7 @@ permissions:
 jobs:
   quality:
     name: Ruff and syntax
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
@@ -34,7 +34,7 @@ jobs:
 
   media-tests:
     name: Synthetic media (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -49,8 +49,9 @@ jobs:
           enable-cache: true
       - name: Install ExifTool and FFmpeg
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libimage-exiftool-perl ffmpeg
+          apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends libimage-exiftool-perl ffmpeg
       - name: Install locked development tools
         run: uv sync --locked --dev
       - name: Run unit and synthetic-media tests

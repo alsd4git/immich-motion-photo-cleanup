@@ -142,6 +142,9 @@ def process(
     max_batches=1,
     restore=False,
 ):
+    limit = plan.get("max_clip_mib")
+    if type(limit) is not int or limit <= 0:
+        raise ValueError("plan has no valid audited max clip MiB")
     items = [r for r in plan["eligible"] if r["owner_id"] == owner]
     if len({r["video_id"] for r in items}) != len(items):
         raise ValueError("plan contains duplicate video IDs")
@@ -193,7 +196,7 @@ def process(
             for key in ("video_id", "photo_id", "linked_video_id")
         }
         state = load_state(selected_ids)
-        validator = None if restore else Validator(state, paths)
+        validator = None if restore else Validator(state, paths, limit)
         accepted = []
         for row in batch:
             if restore:
@@ -236,7 +239,7 @@ def process(
                         "asset changed during preflight; no batch write attempted"
                     )
         if not restore:
-            fresh_validator = Validator(latest, paths)
+            fresh_validator = Validator(latest, paths, limit)
             for row in accepted:
                 fresh_validator.verify(row)
             backup_sidecars(accepted, paths, journal.path.parent / "sidecar-backups")
@@ -325,6 +328,12 @@ def main(argv=None):
             paths.check_output(args.output)
             if args.output.resolve().is_relative_to(Path(__file__).resolve().parent):
                 raise ValueError("private plans must stay outside the Git checkout")
+            progress = json.loads((args.run / "progress.json").read_text())
+            if progress.get("status") != "complete":
+                raise ValueError("trash planning requires a completed batch audit")
+            max_clip_mib = progress.get("config", {}).get("max_clip_mib")
+            if type(max_clip_mib) is not int or max_clip_mib <= 0:
+                raise ValueError("completed run has no valid max clip MiB configuration")
             evidence = evidence_from_run(args.run)
             selected_ids = {
                 row[key]
@@ -338,6 +347,7 @@ def main(argv=None):
                 paths,
                 args.owner,
                 args.preserve_sidecars,
+                max_clip_mib,
             )
             result["created_at"] = now()
             args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -375,6 +385,8 @@ def main(argv=None):
         plan = json.loads(data)
         if plan.get("schema") != 1:
             raise ValueError("unsupported plan schema")
+        if type(plan.get("max_clip_mib")) is not int or plan["max_clip_mib"] <= 0:
+            raise ValueError("invalid max clip MiB in reviewed plan")
         api = ImmichAPI(args.url, read_key(args.api_key_file))
         retention = api.preflight(args.owner, for_restore=args.operation == "restore")
         if not args.execute:

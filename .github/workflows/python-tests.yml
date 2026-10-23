@@ -2,7 +2,7 @@ name: Python tests
 
 on:
   push:
-    branches: [main, chore/python-quality]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

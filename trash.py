@@ -203,7 +203,7 @@ def process(
                 check_api_asset(api, current, state, trashed=True)
             else:
                 try:
-                    validator.verify(row)
+                    validator.verify(row, verify_media=False)
                 except (ValueError, OSError) as error:
                     journal.record("skipped", [row["video_id"]], reason=str(error))
                     continue

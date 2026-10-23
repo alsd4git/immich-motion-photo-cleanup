@@ -252,6 +252,16 @@ class TrashTests(unittest.TestCase):
             self.execute()
         self.api.trash.assert_not_called()
 
+    def test_bytes_changed_during_api_reads_block_final_write(self):
+        def read(identifier):
+            Path(self.state[VIDEO]["path"]).write_bytes(b"changed content")
+            return self.api_asset(identifier)
+
+        self.api.get_asset.side_effect = read
+        with self.assertRaisesRegex(ValueError, "video_bytes_changed"):
+            self.execute()
+        self.api.trash.assert_not_called()
+
     def test_pending_is_durable_and_timeout_is_not_blindly_replayed(self):
         def timeout(ids):
             self.assertEqual(self.journal.statuses()[VIDEO], "trash_pending")

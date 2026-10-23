@@ -131,7 +131,7 @@ class Validator:
         for row in state.values():
             self.path_ids[row["path"]].add(row["id"])
 
-    def verify(self, row, preserve_sidecars=False):
+    def verify(self, row, preserve_sidecars=False, verify_media=True):
         video = self.state.get(asset_id(row["video_id"]))
         photo = self.state.get(asset_id(row["photo_id"]))
         retained = self.state.get(asset_id(row["linked_video_id"]))
@@ -207,19 +207,20 @@ class Validator:
         stat = resolved[0].stat()
         if self.inode_ids[(stat.st_dev, stat.st_ino)] != {video["id"]}:
             raise ValueError("shared_original_inode")
-        fingerprint = media.fingerprint(va)
-        if (
-            fingerprint.sha256 != row["video_sha256"]
-            or fingerprint.size != row["video_bytes"]
-        ):
-            raise ValueError("video_bytes_changed")
-        offset = media.full_video_suffix(pa, va)
-        if offset is None or offset != row["full_file_offset"]:
-            raise ValueError("full_file_containment_changed")
-        info = media.photo_from_contained_video(pa, [va], ra)
-        if info is None:
-            raise ValueError("retained_companion_not_contained")
-        media.verify_unchanged()
+        if verify_media:
+            fingerprint = media.fingerprint(va)
+            if (
+                fingerprint.sha256 != row["video_sha256"]
+                or fingerprint.size != row["video_bytes"]
+            ):
+                raise ValueError("video_bytes_changed")
+            offset = media.full_video_suffix(pa, va)
+            if offset is None or offset != row["full_file_offset"]:
+                raise ValueError("full_file_containment_changed")
+            info = media.photo_from_contained_video(pa, [va], ra)
+            if info is None:
+                raise ValueError("retained_companion_not_contained")
+            media.verify_unchanged()
         result = {
             key: row[key]
             for key in (

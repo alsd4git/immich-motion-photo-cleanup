@@ -8,7 +8,7 @@
 - Pushing and merging require maintainer authorization, which may cover an agreed workflow. Never directly push to `main` unless explicitly authorized; keep authorized direct pushes linear and fast-forward only.
 - Rewriting a published work branch requires approval. Use `--force-with-lease`, never unrestricted force pushes. Never delete unmerged work without permission.
 - PRs target `main`, link their issues, and explain why, what changed, what was tested and any remaining risk. Follow the first automated review when configured; do not request extra manual reviews without authorization.
-- Squash-merge PRs. Verify integration before deleting merged branches. GitHub merge/protection settings are tracked in [issue #8](https://github.com/alsd4git/motion-photo-audit/issues/8) and will be documented in `docs/repo-setup.md` once integrated.
+- Squash-merge PRs. Verify integration before deleting merged branches. GitHub merge/protection settings are documented in [docs/repo-setup.md](docs/repo-setup.md).
 
 ## Implementation and validation
 
@@ -24,11 +24,13 @@
 Python 3.10+ and ExifTool / FFmpeg tools (`exiftool`, `ffprobe` and `ffmpeg`) are required for the full synthetic-media integration tests:
 
 ```sh
-python3 -m compileall -q .
-python3 -m unittest discover -s . -p 'test_*.py' -v
+uv sync --locked --dev
+uv run --locked ruff check .
+uv run --locked python -m compileall -q .
+uv run --locked python -m unittest discover -s . -p 'test_*.py' -v
 ```
 
-When the project's Ruff development tooling is present, also run its documented `uv` lint check. Do not add unrelated dependencies just to execute the runtime scripts.
+Runtime scripts still support direct `python3` execution without third-party packages. Do not add unrelated dependencies just to execute them.
 
 ## Immich safety rules
 

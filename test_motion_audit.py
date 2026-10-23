@@ -259,12 +259,14 @@ class PrivateOutputTests(unittest.TestCase):
     def test_direct_audit_rejects_checkout_temp_directory_before_reading_media(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            library = root / "library"
+            library.mkdir()
             output = root / "report"
             with mock.patch(
                 "motion_audit.shutil.which", return_value="synthetic-tool"
             ), mock.patch("motion_audit.audit") as analyze:
                 result = main([
-                    "--root", str(root), "--output", str(output),
+                    "--root", str(library), "--output", str(output),
                     "--temp-dir", str(Path(__file__).resolve().parent),
                 ])
             self.assertEqual(result, 2)

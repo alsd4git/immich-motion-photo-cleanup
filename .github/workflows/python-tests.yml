@@ -1,0 +1,30 @@
+name: Python tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libimage-exiftool-perl ffmpeg
+      - name: Check Python syntax
+        run: python -m compileall -q .
+      - name: Run unit and synthetic-media tests
+        run: python -m unittest discover -s . -p 'test_*.py' -v

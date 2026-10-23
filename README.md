@@ -262,8 +262,16 @@ upload, metadata-update or API-key-management permissions. Use a separate key
 for each owner; an administrator's key is not a substitute for ownership.
 
 Save the secret as the only text in a file owned by the user running the tool,
-with permissions `600` or `400`, inside a private directory outside this
-repository and the photo library. Do not put the secret in shell arguments,
+with permissions `600` or `400`, inside a private directory outside the photo
+library. Prefer a location outside the repository. To keep credentials in a local
+workspace instead, use a private directory such as `.local-secrets/` and add
+`/.local-secrets/` to that checkout's `.git/info/exclude`, not the shared
+`.gitignore`. A filename such as `.local-secrets/immich-api-key` does not rely
+on the repository's generic `*.key` rule. Verify the rule's source with
+`git check-ignore -v .local-secrets/immich-api-key` and confirm the secret has
+never been tracked. Exclusion rules do not remove an already tracked secret.
+
+Do not put the secret in shell arguments,
 reports, Git, screenshots or chat. The tool refuses symlinked key files and
 files readable by other users. Revoke the key in Immich after the cleanup.
 

@@ -69,6 +69,7 @@ uv run --locked python -m unittest discover -s . -p 'test_*.py' -v
 
 See [AGENTS.md](AGENTS.md) for contribution, integration and validation rules.
 Unreleased changes and future release notes are recorded in [CHANGELOG.md](CHANGELOG.md).
+Maintainers follow the [release procedure](RELEASING.md) before tagging or publishing.
 Direct `python3` execution remains supported without third-party Python packages.
 
 MIT-licensed. Source code and test fixtures do not require access to your actual media library.

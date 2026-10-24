@@ -30,7 +30,7 @@ This file records desired settings for `alsd4git/motion-photo-audit`. **It does 
 
 - Required checks should come from `.github/workflows/python-tests.yml`, which is integrated into `main`. The project uses synthetic media and mocked API/database operations and should never require production credentials.
 - Prefer PR-triggered validation with an optional manual dispatch, avoiding redundant matrix runs on every non-default branch push.
-- Inventories, execution plans, asset paths, reports, journals and API keys contain private information. They must remain outside the Git checkout and should never be used as public CI artifacts.
+- Inventories, execution plans, asset paths, reports and journals contain private information and must remain outside the Git checkout. API keys must never be tracked or used as public CI artifacts; prefer storing them outside the checkout, or follow the [private workspace credential setup](operations.md#api-key-setup).
 
 ## Releases
 

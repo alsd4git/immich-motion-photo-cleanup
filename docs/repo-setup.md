@@ -1,6 +1,18 @@
 # Repository workflow and GitHub setup
 
-This file records verified settings and contribution policy for `alsd4git/motion-photo-audit`. Editing it does not configure GitHub. Recheck the API before assuming the settings are unchanged. The day-to-day agent rules are in [AGENTS.md](../AGENTS.md).
+This file records verified settings and contribution policy for `alsd4git/immich-motion-photo-cleanup`. Editing it does not configure GitHub. Recheck the API before assuming the settings are unchanged. The day-to-day agent rules are in [AGENTS.md](../AGENTS.md).
+
+## Repository identity
+
+The canonical repository is [alsd4git/immich-motion-photo-cleanup](https://github.com/alsd4git/immich-motion-photo-cleanup). The rename preserved the repository identity, issues, PR history and default branch. GitHub redirects the former repository URL.
+
+Existing clones can update only their own `origin` remote:
+
+```sh
+git remote set-url origin git@github.com:alsd4git/immich-motion-photo-cleanup.git
+```
+
+Local checkout directory names need not change. Do not rename private report directories or frozen recovery copies as part of repository branding.
 
 ## Observed settings (2026-10-24)
 

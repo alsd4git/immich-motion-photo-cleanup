@@ -60,10 +60,14 @@ We can learn from the streamlined onboarding and packaging of other tools **with
 
 ## Development
 
-Run tests (real synthetic media tests additionally require `ffmpeg`):
+Use the locked development tools (synthetic-media tests additionally require `ffmpeg`):
 
 ```sh
-python3 -m unittest discover -s . -p 'test_*.py' -v
+uv sync --locked --dev
+uv run --locked python -m unittest discover -s . -p 'test_*.py' -v
 ```
+
+See [AGENTS.md](AGENTS.md) for contribution, integration and validation rules.
+Direct `python3` execution remains supported without third-party Python packages.
 
 MIT-licensed. Source code and test fixtures do not require access to your actual media library.

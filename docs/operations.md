@@ -368,8 +368,11 @@ jq '.rows[] | select(.action == "review")' /tmp/motion-audit-batch-000/report.js
 ## Validation
 
 ```sh
-uv run --no-project --python 3.11 python -m unittest discover -s . -p 'test_*.py' -v
+uv sync --locked --dev
+uv run --locked python -m unittest discover -s . -p 'test_*.py' -v
 ```
+
+See [the project checks](../AGENTS.md#project-checks) for lint and syntax validation.
 
 Tests cover owner isolation, protected companions, ambiguous links across
 batches, filename-only false positives, path traversal, source changes and

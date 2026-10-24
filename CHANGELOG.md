@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-24
+
 ### Added
 
 - Read-only audits of embedded Motion Photos and standalone MP4/MOV candidates, with exact-byte and optional encoded-stream comparisons.
@@ -25,4 +27,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Require completed audits with valid recorded configuration before creating trash plans.
 - Carry the audited clip-size limit through schema-2 plans and execution while preserving historical schema-1 behavior.
 
-No GitHub release or version tag has been published yet. When the first version is tagged, move the relevant entries into its versioned section, record its date, and add comparison links.
+[Unreleased]: https://github.com/alsd4git/immich-motion-photo-cleanup/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/alsd4git/immich-motion-photo-cleanup/releases/tag/v0.1.0

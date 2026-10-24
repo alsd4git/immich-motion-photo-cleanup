@@ -6,7 +6,15 @@ This file records verified settings and contribution policy for `alsd4git/immich
 
 The canonical repository is [alsd4git/immich-motion-photo-cleanup](https://github.com/alsd4git/immich-motion-photo-cleanup). The rename preserved the repository identity, issues, PR history and default branch. GitHub redirects the former repository URL.
 
-Existing clones can update only their own `origin` remote:
+Existing clones can update only their own `origin` remote. Check its current URL with `git remote get-url origin` and keep the existing transport and authentication setup.
+
+For an HTTPS clone, including one created with the README quickstart:
+
+```sh
+git remote set-url origin https://github.com/alsd4git/immich-motion-photo-cleanup.git
+```
+
+For an SSH clone with working GitHub SSH authentication:
 
 ```sh
 git remote set-url origin git@github.com:alsd4git/immich-motion-photo-cleanup.git

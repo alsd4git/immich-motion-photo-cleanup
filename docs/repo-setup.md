@@ -1,6 +1,6 @@
 # Repository workflow and GitHub setup
 
-This file records desired settings for `alsd4git/motion-photo-audit`. **It does not configure GitHub** and must not be treated as proof that protections are active. The day-to-day agent rules are tracked in [issue #6](https://github.com/alsd4git/motion-photo-audit/issues/6).
+This file records desired settings for `alsd4git/motion-photo-audit`. **It does not configure GitHub** and must not be treated as proof that protections are active. The day-to-day agent rules are in [AGENTS.md](../AGENTS.md).
 
 ## Observed settings (2026-10-24)
 
@@ -28,7 +28,7 @@ This file records desired settings for `alsd4git/motion-photo-audit`. **It does 
 
 ## CI and privacy
 
-- Required checks should come from `.github/workflows/python-tests.yml` **once merged into `main`**. The project uses synthetic media and mocked API/database operations and should never require production credentials.
+- Required checks should come from `.github/workflows/python-tests.yml`, which is integrated into `main`. The project uses synthetic media and mocked API/database operations and should never require production credentials.
 - Prefer PR-triggered validation with an optional manual dispatch, avoiding redundant matrix runs on every non-default branch push.
 - Inventories, execution plans, asset paths, reports, journals and API keys contain private information. They must remain outside the Git checkout and should never be used as public CI artifacts.
 

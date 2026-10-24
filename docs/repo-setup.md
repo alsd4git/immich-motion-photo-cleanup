@@ -1,16 +1,23 @@
 # Repository workflow and GitHub setup
 
-This file records desired settings for `alsd4git/motion-photo-audit`. **It does not configure GitHub** and must not be treated as proof that protections are active. The day-to-day agent rules are in [AGENTS.md](../AGENTS.md).
+This file records verified settings and contribution policy for `alsd4git/motion-photo-audit`. Editing it does not configure GitHub. Recheck the API before assuming the settings are unchanged. The day-to-day agent rules are in [AGENTS.md](../AGENTS.md).
 
 ## Observed settings (2026-10-24)
 
 - Integration branch: `main`.
-- Squash merge: enabled.
-- Merge commits and rebase merging: **also enabled**, unlike the preferred configuration in comparable personal repositories.
-- No repository rulesets were returned. The separate branch-protection endpoint reports that `main` is not protected, so required PR/check enforcement is not currently configured there.
-- Automatic deletion of merged PR branches: disabled.
+- Squash merge: enabled. Merge commits and rebase merging: disabled.
+- Automatic deletion of merged PR branches: enabled.
+- Two active repository rulesets target the default branch. `main` has effective rules even though the legacy branch-protection endpoint has no separate protection object.
+- `main-integrity` blocks deletion, force pushes and merge commits. It has no bypass actors, including the maintainer.
+- `main-reviewed-integration` requires PRs, resolved review conversations and an up-to-date base with these passing checks from the GitHub Actions app:
+  - `Ruff and syntax`
+  - `Synthetic media (Python 3.10)`
+  - `Synthetic media (Python 3.14)`
+- No generic human approval count, code-owner approval or last-push approval is required. The workflow still waits for the first configured automatic review and addresses its findings.
+- Only the repository owner's account, `alsd4git`, can bypass the integration ruleset for explicitly authorized maintenance. This does not bypass `main-integrity`.
+- Work branches do not match either ruleset, so approved rebases and deletion of verified merged work remain possible.
 
-## Desired merge settings
+## Merge policy
 
 - Use **squash merging only**. Disable merge commits and rebase merging via repository settings.
 - Enable automatic deletion of **merged** PR head branches after integration; never delete unmerged branches without authorization.
@@ -18,13 +25,13 @@ This file records desired settings for `alsd4git/motion-photo-audit`. **It does 
 - Keep a branch per issue; document intentionally stacked branches and merge the base first. After each merge, rebase the remaining branches onto the integration branch and rerun affected tests.
 - Permit exceptional fast-forward direct pushes to `main` only when the maintainer explicitly authorizes them.
 
-## Protection when supported
+## Protection and maintainer maintenance
 
-- Require PRs, resolved review conversations, and **actually observed** passing PR quality checks for ordinary contributors.
-- Do not require a generic human reviewer count for a single-maintainer repository. Follow the first configured automated review, without requesting duplicate reviews.
-- When checks are stable, require the branch to be up to date before merging. Check the actual workflow job names before setting required-check rules: workflow titles are not always status-check identifiers.
-- Administrators may be allowed to bypass PR requirements for explicitly approved maintenance, but linear-history/no-force-push/no-delete rules should still protect `main` independently.
-- Only claim protections exist after verifying the applicable ruleset/branch-protection configuration and effective bypass list.
+The owner's integration bypass permits an exceptional fast-forward direct push, but only with explicit maintainer authorization. Routine work still uses PRs and waits for checks and the first automatic review. Never use the bypass merely to merge a failed or unreviewed change.
+
+The separate integrity ruleset has no bypass list. An integration bypass cannot authorize a force push, deletion or merge commit on `main`. Rule administration remains available to the repository owner; modifying rules is a separate authorized operation, not a validation technique.
+
+To verify settings without mutating branches, inspect the repository's merge flags, list its rulesets, retrieve each ruleset's conditions and bypass actors, then request the effective rules for `main`. Check names are bound to the observed GitHub Actions app. No destructive branch push or deletion is needed to validate enforcement. See [GitHub's ruleset API](https://docs.github.com/en/rest/repos/rules) for those read-only endpoints.
 
 ## CI and privacy
 

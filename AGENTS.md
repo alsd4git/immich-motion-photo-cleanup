@@ -4,10 +4,11 @@
 
 - `main` is the integration branch. Start from its latest remote state.
 - Keep one work branch per issue or coherent task; do not bundle unrelated changes.
+- Parallel implementation does not mean opening all PRs at once. Open PRs progressively, one at a time or in small independent groups, after rebasing onto current `main` and running the relevant checks. Keep work not yet ready for integration on its branch; do not spend repeated reviews on stale bases.
 - When work branches depend on each other, document the stack and merge the base first. After a branch merges, rebase subsequent work on updated `main` and rerun relevant checks.
 - Pushing and merging require maintainer authorization, which may cover an agreed workflow. Never directly push to `main` unless explicitly authorized; keep authorized direct pushes linear and fast-forward only.
 - Rewriting a published work branch requires approval. Use `--force-with-lease`, never unrestricted force pushes. Never delete unmerged work without permission.
-- PRs target `main`, link their issues, and explain why, what changed, what was tested and any remaining risk. Follow the first automated review when configured; do not request extra manual reviews without authorization.
+- PRs target `main`, link their issues, and explain why, what changed, what was tested and any remaining risk. Wait for the first automated review when configured and address its findings. Do not request another automated or manual review unless explicitly authorized.
 - Squash-merge PRs. Verify integration before deleting merged branches. GitHub merge/protection settings are documented in [docs/repo-setup.md](docs/repo-setup.md).
 
 ## Implementation and validation

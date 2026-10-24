@@ -12,8 +12,8 @@ Google Takeout and other exports may include both a JPEG/HEIC Motion Photo and a
 Requirements: Python 3.10+ on a POSIX system such as Linux or macOS, [ExifTool](https://exiftool.org/), `ffprobe` (FFmpeg). Run where you can read the Immich originals and have access to its PostgreSQL Docker container. The Python tool itself has **no third-party package dependencies**.
 
 ```sh
-git clone https://github.com/alsd4git/motion-photo-audit.git
-cd motion-photo-audit
+git clone https://github.com/alsd4git/immich-motion-photo-cleanup.git
+cd immich-motion-photo-cleanup
 python3 run_batches.py \
   --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \

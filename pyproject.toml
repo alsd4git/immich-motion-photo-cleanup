@@ -1,15 +1,24 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "immich-motion-photo-cleanup"
-version = "0.1.0"
+version = "0.2.0"
 description = "Audit and safely clean up redundant Immich Motion Photo videos"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = []
 
-[tool.uv]
-# Preserve direct python3 script execution; this is not yet a packaged CLI.
-package = false
+[project.scripts]
+immich-motion-photo-cleanup = "immich_motion_photo_cleanup.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+immich_motion_photo_cleanup = ["*.sql"]
 
 [dependency-groups]
 dev = ["ruff==0.16.5"]

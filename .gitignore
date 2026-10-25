@@ -4,6 +4,9 @@ report.json
 summary.txt
 inventory.jsonl
 .venv/
+build/
+dist/
+*.egg-info/
 /reports/
 /runs/
 plan.json

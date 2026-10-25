@@ -10,15 +10,15 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from inventory import (
+from immich_motion_photo_cleanup.inventory import (
     Asset,
     LibraryPaths,
     check_private_output,
     filesystem_inventory,
     read_inventory,
 )
-from media import Fingerprint, MediaError, MediaReader, PhotoInfo
-from motion_audit import audit, main
+from immich_motion_photo_cleanup.media import Fingerprint, MediaError, MediaReader, PhotoInfo
+from immich_motion_photo_cleanup.motion_audit import audit, main
 
 CLIP = Fingerprint("a" * 64, 100)
 OTHER = Fingerprint("b" * 64, 100)
@@ -247,8 +247,8 @@ class PrivateOutputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(__file__).resolve().parent / "private-output-regression"
             with mock.patch(
-                "motion_audit.shutil.which", return_value="synthetic-tool"
-            ), mock.patch("motion_audit.audit") as analyze:
+                "immich_motion_photo_cleanup.motion_audit.shutil.which", return_value="synthetic-tool"
+            ), mock.patch("immich_motion_photo_cleanup.motion_audit.audit") as analyze:
                 result = main(
                     ["--root", directory, "--output", str(output)]
                 )
@@ -263,8 +263,8 @@ class PrivateOutputTests(unittest.TestCase):
             library.mkdir()
             output = root / "report"
             with mock.patch(
-                "motion_audit.shutil.which", return_value="synthetic-tool"
-            ), mock.patch("motion_audit.audit") as analyze:
+                "immich_motion_photo_cleanup.motion_audit.shutil.which", return_value="synthetic-tool"
+            ), mock.patch("immich_motion_photo_cleanup.motion_audit.audit") as analyze:
                 result = main([
                     "--root", str(library), "--output", str(output),
                     "--temp-dir", str(Path(__file__).resolve().parent),

@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from uuid import UUID
 
+from .resources import resource_bytes
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".heic", ".heif", ".avif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 
@@ -105,7 +107,9 @@ def asset_id(value):
 def database_query(container, filename, selected_ids=None):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
         raise ValueError("invalid database container name")
-    sql = Path(__file__).with_name(filename).read_text()
+    if filename not in {"inventory.sql", "trash_state.sql"}:
+        raise ValueError("unknown inventory query")
+    sql = resource_bytes(filename).decode("utf-8")
     if filename == "trash_state.sql":
         # Only validated UUIDs enter the psql variable. Keep large selections on
         # stdin, not argv, both for privacy and OS argument-length limits.
@@ -231,3 +235,15 @@ def check_private_output(path):
     source_root = Path(__file__).resolve().parent
     if resolved.is_relative_to(source_root):
         raise ValueError("private reports must be written outside the Git checkout")
+    # An installed CLI may be invoked from a checkout other than its install
+    # directory. Also protect source archives, where no .git marker exists.
+    for parent in (resolved, *resolved.parents):
+        marker = parent / ".git"
+        if marker.exists() or marker.is_symlink() or (
+            (parent / "pyproject.toml").is_file()
+            and (
+                (parent / "src" / "immich_motion_photo_cleanup").is_dir()
+                or ((parent / "motion_audit.py").is_file() and (parent / "inventory.sql").is_file())
+            )
+        ):
+            raise ValueError("private reports must be written outside the Git checkout")

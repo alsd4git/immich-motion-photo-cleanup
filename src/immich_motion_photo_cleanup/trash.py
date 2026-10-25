@@ -13,11 +13,12 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from immich_api import ImmichAPI, read_key
-from inventory import LibraryPaths, asset_id
-from run_batches import atomic_json
-from sidecars import read_sidecar
-from trash_plan import (
+from .immich_api import ImmichAPI, read_key
+from .inventory import LibraryPaths, asset_id, check_private_output
+from .run_batches import atomic_json
+from .sidecars import read_sidecar
+from .resources import runtime_digest
+from .trash_plan import (
     Validator,
     current_state,
     evidence_from_run,
@@ -274,19 +275,7 @@ def process(
 
 
 def code_digest():
-    digest = hashlib.sha256()
-    for name in (
-        "inventory.py",
-        "media.py",
-        "run_batches.py",
-        "sidecars.py",
-        "trash_state.sql",
-        "trash_plan.py",
-        "immich_api.py",
-        "trash.py",
-    ):
-        digest.update(Path(__file__).with_name(name).read_bytes())
-    return digest.hexdigest()
+    return runtime_digest()
 
 
 def human_size(value):
@@ -335,8 +324,8 @@ def preflight_summary(data):
     )
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv=None, *, prog=None):
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     parser.add_argument("operation", choices=("plan", "trash", "restore"))
     parser.add_argument(
         "--run", type=Path, help="completed run_batches.py directory, for plan"
@@ -380,8 +369,7 @@ def main(argv=None):
             if not args.run or not args.output or args.execute:
                 raise ValueError("plan requires --run and --output, without --execute")
             paths.check_output(args.output)
-            if args.output.resolve().is_relative_to(Path(__file__).resolve().parent):
-                raise ValueError("private plans must stay outside the Git checkout")
+            check_private_output(args.output)
             progress = json.loads((args.run / "progress.json").read_text())
             if not isinstance(progress, dict) or progress.get("status") != "complete":
                 raise ValueError("trash planning requires a completed batch audit")
@@ -430,8 +418,7 @@ def main(argv=None):
                 "batch-size must be 1..100; max-batches must be nonnegative"
             )
         paths.check_output(args.journal)
-        if args.journal.resolve().is_relative_to(Path(__file__).resolve().parent):
-            raise ValueError("private journals must stay outside the Git checkout")
+        check_private_output(args.journal)
         data = args.plan.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         plan = json.loads(data)

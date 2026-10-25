@@ -13,7 +13,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from inventory import (
+from .inventory import (
     LibraryPaths,
     check_private_output,
     database_inventory,
@@ -21,8 +21,9 @@ from inventory import (
     read_inventory,
     serialize_inventory,
 )
-from motion_audit import READ_ERRORS, arguments, candidates, error_text
-from motion_audit import main as audit_main
+from .motion_audit import READ_ERRORS, arguments, candidates, error_text
+from .motion_audit import main as audit_main
+from .resources import runtime_digest
 
 
 def atomic_json(path, value):
@@ -41,18 +42,7 @@ def atomic_json(path, value):
 
 
 def tool_digest():
-    digest = hashlib.sha256()
-    root = Path(__file__).resolve().parent
-    for name in (
-        "inventory.py",
-        "inventory.sql",
-        "media.py",
-        "motion_audit.py",
-        "run_batches.py",
-    ):
-        digest.update(name.encode())
-        digest.update((root / name).read_bytes())
-    return digest.hexdigest()
+    return runtime_digest()
 
 
 def aggregate(root, completed):
@@ -337,8 +327,8 @@ def run(args, run_batch=audit_main):
         return 1 if summary["file_errors"] else 0
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv=None, *, prog=None):
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     parser.add_argument(
         "--resume",
         action="store_true",

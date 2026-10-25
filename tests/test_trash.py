@@ -13,11 +13,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import UUID
 
-from immich_api import ApiError, ImmichAPI, NoRedirect, read_key
-from inventory import LibraryPaths, database_query
-from media import MediaReader
-from sidecars import compare, xml_fingerprint
-from trash import (
+from immich_motion_photo_cleanup.immich_api import ApiError, ImmichAPI, NoRedirect, read_key
+from immich_motion_photo_cleanup.inventory import LibraryPaths, database_query
+from immich_motion_photo_cleanup.media import MediaReader
+from immich_motion_photo_cleanup.sidecars import compare, xml_fingerprint
+from immich_motion_photo_cleanup.trash import (
     Journal,
     backup_sidecars,
     human_size,
@@ -26,7 +26,7 @@ from trash import (
     preflight_summary,
     process,
 )
-from trash_plan import (
+from immich_motion_photo_cleanup.trash_plan import (
     Validator,
     evidence_from_run,
     make_plan,
@@ -144,7 +144,7 @@ class TrashTests(unittest.TestCase):
 
     def test_reviewed_limit_reaches_both_execution_validation_passes(self):
         self.plan["max_clip_mib"] = 512
-        with patch("trash_plan.MediaReader", wraps=MediaReader) as reader:
+        with patch("immich_motion_photo_cleanup.trash_plan.MediaReader", wraps=MediaReader) as reader:
             self.assertEqual(self.execute(), {"trashed": 1})
         self.assertEqual(reader.call_count, 2)
         for invocation in reader.call_args_list:
@@ -153,7 +153,7 @@ class TrashTests(unittest.TestCase):
     def test_legacy_plan_retains_its_historical_limit(self):
         self.plan["schema"] = 1
         self.plan.pop("max_clip_mib")
-        with patch("trash_plan.MediaReader", wraps=MediaReader) as reader:
+        with patch("immich_motion_photo_cleanup.trash_plan.MediaReader", wraps=MediaReader) as reader:
             self.assertEqual(self.execute(), {"trashed": 1})
         for invocation in reader.call_args_list:
             self.assertEqual(invocation.kwargs["max_clip_bytes"], 256 * 1024**2)
@@ -176,7 +176,7 @@ class TrashTests(unittest.TestCase):
 
     def test_alias_index_is_deferred_until_the_final_byte_proof(self):
         with patch(
-            "trash_plan.original_inode_index", wraps=original_inode_index
+            "immich_motion_photo_cleanup.trash_plan.original_inode_index", wraps=original_inode_index
         ) as index:
             validator = Validator(self.state, self.paths)
             validator.verify(self.row, verify_media=False)
@@ -506,7 +506,7 @@ class PlanCLITests(unittest.TestCase):
     def test_plan_cli_persists_the_completed_audit_limit(self):
         (self.run / "progress.json").write_text(json.dumps(self.progress))
         with (
-            patch("trash.current_state", return_value={}),
+            patch("immich_motion_photo_cleanup.trash.current_state", return_value={}),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             result = main(self.arguments())
@@ -529,7 +529,7 @@ class PlanCLITests(unittest.TestCase):
             with self.subTest(progress=progress):
                 (self.run / "progress.json").write_text(json.dumps(progress))
                 with (
-                    patch("trash.current_state") as state,
+                    patch("immich_motion_photo_cleanup.trash.current_state") as state,
                     contextlib.redirect_stderr(io.StringIO()),
                 ):
                     result = main(self.arguments())
@@ -541,7 +541,7 @@ class PlanCLITests(unittest.TestCase):
         (self.run / "progress.json").write_text(json.dumps(self.progress))
         output = io.StringIO()
         with (
-            patch("trash.current_state", return_value={}),
+            patch("immich_motion_photo_cleanup.trash.current_state", return_value={}),
             contextlib.redirect_stdout(output),
         ):
             result = main(self.arguments() + ["--json"])
@@ -600,8 +600,8 @@ class DryRunCLITests(unittest.TestCase):
                 with self.subTest(operation=operation, json=use_json):
                     output = io.StringIO()
                     with (
-                        patch("trash.ImmichAPI") as api,
-                        patch("trash.current_state") as state,
+                        patch("immich_motion_photo_cleanup.trash.ImmichAPI") as api,
+                        patch("immich_motion_photo_cleanup.trash.current_state") as state,
                         contextlib.redirect_stdout(output),
                     ):
                         api.return_value.preflight.return_value = {
@@ -626,7 +626,7 @@ class DryRunCLITests(unittest.TestCase):
                         self.assertIn(f"Operation: {operation}", output.getvalue())
 
     def test_json_does_not_bypass_the_execute_hash_guard(self):
-        with patch("trash.ImmichAPI") as api, contextlib.redirect_stderr(io.StringIO()):
+        with patch("immich_motion_photo_cleanup.trash.ImmichAPI") as api, contextlib.redirect_stderr(io.StringIO()):
             api.return_value.preflight.return_value = {"enabled": True, "days": 30}
             self.assertEqual(main(self.arguments("trash") + ["--execute", "--json"]), 2)
         api.return_value.trash.assert_not_called()
@@ -711,7 +711,7 @@ class SidecarTests(unittest.TestCase):
 
 class ApiTests(unittest.TestCase):
     def test_database_selection_rejects_injection_before_starting_a_process(self):
-        with patch("inventory.subprocess.run") as process:
+        with patch("immich_motion_photo_cleanup.inventory.subprocess.run") as process:
             with self.assertRaises(ValueError):
                 database_query(
                     "database", "trash_state.sql", ["'); DELETE FROM asset; --"]
@@ -719,7 +719,7 @@ class ApiTests(unittest.TestCase):
             process.assert_not_called()
 
     def test_database_selection_stays_on_stdin_not_process_arguments(self):
-        with patch("inventory.subprocess.run", return_value=Mock(stdout="")) as process:
+        with patch("immich_motion_photo_cleanup.inventory.subprocess.run", return_value=Mock(stdout="")) as process:
             database_query("database", "trash_state.sql", [VIDEO])
             self.assertNotIn(VIDEO, " ".join(process.call_args.args[0]))
             self.assertIn(

@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from inventory import (
+from .inventory import (
     IMAGE_EXTENSIONS,
     VIDEO_EXTENSIONS,
     LibraryPaths,
@@ -23,7 +23,7 @@ from inventory import (
     read_inventory,
     serialize_inventory,
 )
-from media import MediaReader, PhotoInfo
+from .media import MediaReader, PhotoInfo
 
 VERSION = 1
 READ_ERRORS = (OSError, ValueError, subprocess.SubprocessError)

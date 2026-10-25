@@ -4,8 +4,8 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "immich-motion-photo-cleanup"
-version = "0.1.0"
-source = { virtual = "." }
+version = "0.2.0"
+source = { editable = "." }
 
 [package.dev-dependencies]
 dev = [

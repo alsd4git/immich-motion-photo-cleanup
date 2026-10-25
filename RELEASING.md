@@ -1,8 +1,10 @@
 # Release procedure
 
-This project distributes source scripts, not a Python wheel or a packaged CLI.
-Keep `[tool.uv] package = false` and do not advertise PyPI or `uvx` installation
-unless a separate packaging change actually implements and validates it.
+The current project is an installable Python package with a console entry point.
+Git-tag installation through uv is the distribution path. Build and validate
+wheel and sdist artifacts before publishing a tag, but do not imply that a PyPI
+package exists. There is no automatic package-registry publishing workflow.
+The historical v0.1.0 source-only release remains unchanged.
 
 ## Approval and validation
 
@@ -45,22 +47,26 @@ On a dedicated branch based on current `main`:
    Trash retention is finite and byte preservation does not prove playback health.
 5. Review the source archive contents for private data. Do not attach private
    reports, credentials, media or recovery bundles as release assets.
+   Verify that SQL resources ship in wheel and sdist, that installed commands
+   run outside the checkout, and that the pinned uvx invocation works. Keep
+   development dependencies out of runtime metadata. A tag is not an alias for
+   the latest release, and an existing tag must never be moved for packaging.
 6. Integrate the release preparation PR through the normal first-review and
    squash-merge workflow. Verify the exact final `main` commit and its CI before
    tagging. Do not tag the unmerged release branch.
 
 ## Publish after approval
 
-For the first approved release, replace `VERIFIED_MAIN_COMMIT` with the full
+For the next approved release, replace `VERIFIED_MAIN_COMMIT` with the full
 commit verified above. The notes file must contain only reviewed public text.
 Check that neither the tag nor release already exists before creating either.
 
 ```sh
-git tag -a v0.1.0 VERIFIED_MAIN_COMMIT -m "Release v0.1.0"
-git push origin refs/tags/v0.1.0
-gh release create v0.1.0 \
+git tag -a v0.2.0 VERIFIED_MAIN_COMMIT -m "Release v0.2.0"
+git push origin refs/tags/v0.2.0
+gh release create v0.2.0 \
   --repo alsd4git/immich-motion-photo-cleanup \
-  --verify-tag --title "v0.1.0" \
+  --verify-tag --title "v0.2.0" \
   --notes-file /absolute/private/path/release-notes.md
 ```
 

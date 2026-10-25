@@ -10,36 +10,44 @@ Requires Python 3.10+, ExifTool and ffprobe. Python uses only the standard libra
 The integration tests also require ffmpeg. Run it on the machine that can read
 the original files. The database mode additionally requires Docker access.
 
+## Installation and server access
+
+Install the package on the Immich host using the fixed tag in the [README](../README.md#quick-start-audit-only). Running over SSH is sufficient; physical presence at the server is not required. Local read access is preferred because the proofs can read large originals without network downloads, while database access provides global companion references, sidecar paths and association information. Filesystem access also permits inode and alias checks unavailable through the public API.
+
+An API key authorizes the explicit trash/restore API flow; it does not replace access to originals or the database. API-key-only analysis is a future evaluation, not a current mode. A future remote mode would need private downloads and a documented inventory of available safety information before any cleanup operation could be allowed. Missing evidence must never become an implicit permission to delete.
+
+`immich-motion-photo-cleanup doctor --database` checks local executable availability without contacting the server. It does not check database permissions, schema compatibility, backups, thumbnail health or API permissions.
+
 ## Audit an Immich library
 
-Run from the repository root on the host, not from `docs/`. Use the server's actual volume mapping.
+The installed command works outside the repository. Use the server's actual volume mapping.
 For example, if `/data` in the container maps to `/srv/immich` on the host:
 
 ```sh
-uv run --no-project motion_audit.py \
+immich-motion-photo-cleanup audit \
   --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \
   --compare-streams \
-  --limit 200 \
+  --limit 200 --max-batches 1 \
   --output /tmp/motion-audit-batch-000
 ```
 
-`python3 motion_audit.py` also works without uv. The script uses `docker exec`
+The command uses `docker exec`
 to run the bundled `inventory.sql` inside a PostgreSQL `READ ONLY` transaction.
 It reads the configured `POSTGRES_USER` and `POSTGRES_DB` inside the container.
 It does not need an API key or print credentials. Database schema fields follow
 Immich v3.2.2 and were checked against v3.3.5. A schema
 change produces a query error rather than an incomplete inventory.
 
-The first database run saves `inventory.jsonl` in the report directory. Reuse
-that snapshot for subsequent batches, so uploads cannot shift the pagination:
+The first database run freezes `inventory.jsonl` in the run directory. Resume
+the same run with the same settings, so uploads cannot shift pagination:
 
 ```sh
-uv run --no-project motion_audit.py \
-  --inventory /tmp/motion-audit-batch-000/inventory.jsonl \
+immich-motion-photo-cleanup audit \
+  --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \
-  --offset 200 --limit 200 \
-  --output /tmp/motion-audit-batch-001
+  --compare-streams --limit 200 --resume \
+  --output /tmp/motion-audit-batch-000
 ```
 
 Use `--owner OWNER_UUID` to scope candidate matching and media reads to one
@@ -55,9 +63,9 @@ resolve inside an allowed root; symlinks escaping those roots are rejected.
 ## Audit a filesystem or Takeout directory
 
 ```sh
-uv run --no-project motion_audit.py \
+immich-motion-photo-cleanup audit \
   --root /absolute/path/to/Takeout \
-  --limit 200 \
+  --limit 200 --max-batches 1 \
   --output /tmp/takeout-motion-audit-000
 ```
 
@@ -67,11 +75,11 @@ needs for live playback. It never generates actionable trash/link proposals.
 
 ## Run all batches and resume
 
-`run_batches.py` freezes the inventory once and processes every eligible photo
+`audit` freezes the inventory once and processes every eligible photo
 in batches of `--limit`, 200 by default. Run it on the library host:
 
 ```sh
-python3 run_batches.py \
+immich-motion-photo-cleanup audit \
   --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \
   --compare-streams --limit 200 \
@@ -163,10 +171,11 @@ old companion in Immich.
 
 Each run creates a new private directory containing:
 
-- `report.json`: pair evidence, asset IDs, paths, hashes, reasons and deduplicated
+- `batch-*/report.json`: pair evidence, asset IDs, paths, hashes, reasons and deduplicated
   proposed actions. Includes the inventory SHA-256 and the next batch offset.
-- `summary.txt`: counts, errors and pagination.
-- `inventory.jsonl`: database snapshot, only when reading the database directly.
+- `batch-*/summary.txt`: counts, errors and pagination.
+- `inventory.jsonl`: frozen input snapshot.
+- `summary.json`, `progress.json` and `journal.jsonl`: aggregate results, resume state and audit progress. This audit journal is separate from an execution journal.
 
 Reports contain private filenames and paths; keep them out of Git and shared
 directories. Existing output directories are refused. Original media is opened
@@ -183,14 +192,14 @@ this audit does not transfer those properties.
 
 ## Move verified duplicates to Immich's trash
 
-`trash.py` is separate from the read-only audit. It requires local read access
+The `plan`, `trash` and `restore` commands are separate from the read-only audit. They require local read access
 to the database and originals. Its API flow was checked against Immich v3.3.5.
 Older or newer versions need schema and endpoint checks before use.
 
 First create a fresh plan from a completed batch run:
 
 ```sh
-python3 trash.py plan \
+immich-motion-photo-cleanup plan \
   --run /absolute/private/path/motion-audit-run \
   --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \
@@ -294,7 +303,7 @@ Without `--execute`, the following only checks authentication and retention and
 prints the owner's candidate count and plan hash:
 
 ```sh
-python3 trash.py trash \
+immich-motion-photo-cleanup trash \
   --plan /absolute/private/path/trash-plan/plan.json \
   --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \
@@ -336,7 +345,7 @@ source-digest check, and upgrading scripts does not migrate an existing journal.
 Use the same arguments, plan hash and journal, changing `trash` to `restore`:
 
 ```sh
-python3 trash.py restore \
+immich-motion-photo-cleanup restore \
   --plan /absolute/private/path/trash-plan/plan.json \
   --immich-db-container immich_postgres \
   --path-map /data=/srv/immich \
@@ -361,15 +370,46 @@ The default timeout is 60 seconds per subprocess and can be changed with
 Examples to inspect the JSON report:
 
 ```sh
-jq '.proposals' /tmp/motion-audit-batch-000/report.json
-jq '.rows[] | select(.action == "review")' /tmp/motion-audit-batch-000/report.json
+jq '.proposals' /tmp/motion-audit-batch-000/summary.json
+jq '.rows[] | select(.action == "review")' /tmp/motion-audit-batch-000/batch-000000/report.json
 ```
+
+## Recovery across versions
+
+The packaged CLI starts a new runtime fingerprint. Do not use it to resume a
+pre-package audit or execution journal, including runs made with v0.1.0 or
+earlier revisions. A plan's schema compatibility does not make its execution
+journal source-compatible.
+
+Keep the exact frozen source used to create each journal, together with the
+original plan, journal and sidecar backups. Recover those recorded actions
+using that source and its original runbook. A version label alone is not enough
+if the journal was created with a different commit. Never edit a journal header
+or plan hash to bypass a mismatch, and never overwrite old recovery directories.
+
+For new packaged runs, keep the reviewed tag and full runtime fingerprint with
+the private evidence. Do not store reports, keys or recovery data in a disposable
+uv tool cache. Starting a new audit and plan does not migrate an existing
+execution journal.
+
+## Album covers
+
+A redundant video is not protected merely because it is an album cover. Immich
+should select a replacement after trashing it. In v3.3.5 the replacement can be
+a hidden Live Photo companion without its own thumbnail, leaving a broken
+cover even though the visible photo is intact. See the upstream report
+[immich#32724](https://github.com/immich-app/immich/issues/32724).
+
+Inspect affected album covers after cleanup. If necessary, use Immich's
+"Select album cover" action to choose the corresponding still image. This CLI
+does not automatically change album covers or add album-update permissions to
+the cleanup key. Do not restore redundant videos merely to repair a cover.
 
 ## Validation
 
 ```sh
 uv sync --locked --dev
-uv run --locked python -m unittest discover -s . -p 'test_*.py' -v
+uv run --locked python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 See [the project checks](../AGENTS.md#project-checks) for lint and syntax validation.

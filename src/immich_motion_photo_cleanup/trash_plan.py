@@ -5,9 +5,9 @@ import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from inventory import Asset, asset_id, database_query
-from media import MediaReader
-from sidecars import compare, manifests
+from .inventory import Asset, asset_id, database_query
+from .media import MediaReader
+from .sidecars import compare, manifests
 
 
 def current_state(container, selected_ids=None):

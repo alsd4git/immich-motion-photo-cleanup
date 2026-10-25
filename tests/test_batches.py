@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from inventory import Asset, serialize_inventory
-from motion_audit import arguments
-from run_batches import aggregate, run
+from immich_motion_photo_cleanup.inventory import Asset, serialize_inventory
+from immich_motion_photo_cleanup.motion_audit import arguments
+from immich_motion_photo_cleanup.run_batches import aggregate, run
 
 
 class BatchTests(unittest.TestCase):

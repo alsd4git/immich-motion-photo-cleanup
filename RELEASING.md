@@ -39,9 +39,11 @@ On a dedicated branch based on current `main`:
 2. Keep the existing Keep a Changelog 1.1.0 and Semantic Versioning 2.0.0
    introduction. Move the released entries into a dated version section using
    the actual release date. Leave `[Unreleased]` for subsequent changes.
-3. Use the canonical repository in comparison and release links. For the first
-   version, `[Unreleased]` compares `v0.1.0...HEAD`, and `[0.1.0]` links to the
-   release tagged `v0.1.0`. Do not invent a preceding tag.
+3. Use the canonical repository in comparison and release links. Point
+   `[Unreleased]` at `vMAJOR.MINOR.PATCH...HEAD` for the version being released,
+   and link that version to the comparison from its preceding release tag.
+   Preserve historical links, including the first `v0.1.0` release link, which
+   has no preceding tag. Update stable installation examples to the new tag.
 4. Write concise public release notes with the supported execution method,
    external tool requirements, validation results and safety limitations.
    Trash retention is finite and byte preservation does not prove playback health.
@@ -57,17 +59,41 @@ On a dedicated branch based on current `main`:
 
 ## Publish after approval
 
-For the next approved release, replace `VERIFIED_MAIN_COMMIT` with the full
-commit verified above. The notes file must contain only reviewed public text.
-Check that neither the tag nor release already exists before creating either.
+Set these environment variables for each approved release:
+
+- `RELEASE_VERSION`: the approved SemVer tag in `vMAJOR.MINOR.PATCH` form.
+- `RELEASE_COMMIT`: the full SHA of the final merged `main` commit whose CI
+  and read-only library validation passed.
+- `RELEASE_NOTES`: an absolute path outside the checkout to the reviewed public
+  release notes.
+
+Do not reuse a version that already exists. Fetch the current remote refs and
+check both local and remote tags and GitHub Releases before publication. Treat
+authentication or network errors as failures to verify absence. Confirm the
+remote is the canonical repository, `HEAD` and `origin/main` equal the reviewed
+commit, and the worktree is clean. The version in `pyproject.toml`, changelog
+and installation examples must match `RELEASE_VERSION`.
+
+The following block requires all three values instead of supplying a release
+number that could accidentally be reused. Run it only after those checks and
+explicit release approval. The subshell stops on failure without changing the
+calling shell's options.
 
 ```sh
-git tag -a v0.2.0 VERIFIED_MAIN_COMMIT -m "Release v0.2.0"
-git push origin refs/tags/v0.2.0
-gh release create v0.2.0 \
-  --repo alsd4git/immich-motion-photo-cleanup \
-  --verify-tag --title "v0.2.0" \
-  --notes-file /absolute/private/path/release-notes.md
+(
+  set -eu
+  : "${RELEASE_VERSION:?Set the approved vMAJOR.MINOR.PATCH tag}"
+  : "${RELEASE_COMMIT:?Set the full verified main commit SHA}"
+  : "${RELEASE_NOTES:?Set the absolute path to reviewed public release notes}"
+  test -f "$RELEASE_NOTES"
+
+  git tag -a "$RELEASE_VERSION" "$RELEASE_COMMIT" -m "Release $RELEASE_VERSION"
+  git push origin "refs/tags/$RELEASE_VERSION"
+  gh release create "$RELEASE_VERSION" \
+    --repo alsd4git/immich-motion-photo-cleanup \
+    --verify-tag --target "$RELEASE_COMMIT" --title "$RELEASE_VERSION" \
+    --notes-file "$RELEASE_NOTES"
+)
 ```
 
 GitHub provides the source archives for the tag. This procedure does not publish
@@ -77,3 +103,15 @@ After publication, verify the tag is annotated and resolves to the intended
 `main` commit. Check the GitHub Release, notes, source archive contents,
 changelog links and canonical URLs. If publication is interrupted, inspect the
 existing tag and release before retrying. Never force-move a published tag.
+
+Check installation from the published tag without a manual checkout:
+
+```sh
+uvx --from "git+https://github.com/alsd4git/immich-motion-photo-cleanup.git@${RELEASE_VERSION:?Set the published release tag}" \
+  immich-motion-photo-cleanup --version
+```
+
+The reported version must match the tag without its leading `v`. Keep the exact
+runtime revision used for each saved plan or execution journal, as described in
+[recovery across versions](docs/operations.md#recovery-across-versions). A newer
+release does not migrate those files or make their source digests compatible.

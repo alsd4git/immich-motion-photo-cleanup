@@ -1,5 +1,9 @@
 # Immich Motion Photo Cleanup
 
+[![CI](https://github.com/alsd4git/immich-motion-photo-cleanup/actions/workflows/python-tests.yml/badge.svg?branch=main)](https://github.com/alsd4git/immich-motion-photo-cleanup/actions/workflows/python-tests.yml)
+[![Latest release](https://img.shields.io/github/v/release/alsd4git/immich-motion-photo-cleanup)](https://github.com/alsd4git/immich-motion-photo-cleanup/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
 **Inspect Google Takeout Motion Photo duplicates in Immich, verify actual media bytes, and optionally move proven redundant videos to Immich's reversible trash.**
 
 Google Takeout and other exports may include both a JPEG/HEIC Motion Photo and a separate MP4/MOV. After importing, Immich can display a redundant standalone video next to the Motion Photo. **Matching filenames are not sufficient evidence for deletion.** This project audits existing imports against their embedded video and Immich's actual Live Photo relationships.
